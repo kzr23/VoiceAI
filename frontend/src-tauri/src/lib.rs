@@ -3,7 +3,7 @@ use std::fs;
 use std::io::{BufRead, Read};
 use std::process::{Command, Stdio};
 use std::time::UNIX_EPOCH;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 #[derive(Serialize)]
 struct AudioFile {
@@ -701,7 +701,7 @@ fn check_setup_complete() -> bool {
 }
 
 #[tauri::command]
-async fn run_setup(app: tauri::AppHandle) -> Result<(), String> {
+fn run_setup(app: tauri::AppHandle) -> Result<(), String> {
     let resource_dir = app.path().resource_dir()
         .map_err(|e| format!("resource_dir: {}", e))?;
 
@@ -726,7 +726,7 @@ async fn run_setup(app: tauri::AppHandle) -> Result<(), String> {
     };
 
     let app_clone = app.clone();
-    tokio::task::spawn_blocking(move || {
+    std::thread::spawn(move || {
         let mut cmd = Command::new(&interpreter);
         for a in &script_args { cmd.arg(a); }
         cmd.env("CURZON_BACKEND_DIR",    &backend_str);
@@ -763,7 +763,7 @@ async fn run_setup(app: tauri::AppHandle) -> Result<(), String> {
             Ok(s) => { let _ = app_clone.emit("setup-error", format!("Setup exited with code {:?}", s.code())); }
             Err(e) => { let _ = app_clone.emit("setup-error", format!("Setup error: {}", e)); }
         }
-    }).await.map_err(|e| e.to_string())?;
+    });
 
     Ok(())
 }
