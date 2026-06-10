@@ -552,7 +552,7 @@ function App() {
     ...customVoices.map(cv => ({
       id: cv.id, name: cv.name, gender: cv.gender as "Female"|"Male",
       tone: "Custom" as Tone,
-      engine: cv.engine || `openvoice_v2|${cv.id}`, isCustom: true, category: "Custom" as const,
+      engine: (cv.engine && cv.engine !== "xtts_v2") ? cv.engine : `openvoice_v2|${cv.id}`, isCustom: true, category: "Custom" as const,
     })),
     ...BUILT_IN_VOICES,
   ];

@@ -187,7 +187,7 @@ try:
         "gender":  gender,
         "ref_wav": os.path.basename(ref_wav_dest),   # XTTS-v2 reference audio
         "created": int(time.time()),
-        "engine":  "xtts_v2",
+        "engine":  f"f5tts|{voice_id}",
     }
     if ref_stats:
         entry["ref_stats"] = ref_stats
