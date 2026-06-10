@@ -115,7 +115,7 @@ jobs:
 
             ---
             ### Installation
-            - **macOS**: Download `Curzon_*_universal.dmg`, open it, drag Curzon to Applications
+            - **macOS**: Download `Curzon_*_universal.dmg`, open it, then **double-click `Install Curzon.command`** inside the disk image. It copies the app and removes the macOS security flag automatically.
             - **Windows**: Download `Curzon_*_x64-setup.exe` and run it
 
             On first launch, Curzon will automatically install all AI models (~2–4 GB).
@@ -125,3 +125,33 @@ jobs:
           projectPath: frontend
           updaterJsonKeepUniversal: true
           args: ${{ matrix.args }}
+
+      # ── Inject install script into macOS DMG ─────────────────────────────────
+      - name: Inject install script into macOS DMG
+        if: matrix.platform == 'macos-latest'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          DMG=$(find frontend/src-tauri/target -name "*.dmg" | head -1)
+          echo "Processing: $DMG"
+
+          # Convert to read-write image
+          hdiutil convert "$DMG" -format UDRW -o /tmp/rw.dmg -quiet
+
+          # Mount it
+          hdiutil attach /tmp/rw.dmg -mountpoint /tmp/cvol -nobrowse -quiet
+
+          # Copy install script in
+          cp scripts/mac_install.command "/tmp/cvol/Install Curzon.command"
+          chmod +x "/tmp/cvol/Install Curzon.command"
+
+          # Detach
+          hdiutil detach /tmp/cvol -quiet
+
+          # Convert back to compressed read-only
+          hdiutil convert /tmp/rw.dmg -format UDZO -o /tmp/final.dmg -quiet
+          mv /tmp/final.dmg "$DMG"
+
+          echo "Replacing release asset with updated DMG..."
+          gh release upload "${{ github.ref_name }}" "$DMG" --clobber
