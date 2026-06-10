@@ -465,6 +465,12 @@ function App() {
   const [trainStep, setTrainStep]               = useState(0);
   const [deleteVoiceTarget, setDeleteVoiceTarget] = useState<string|null>(null);
 
+  // ── License ─────────────────────────────────────────────────────────────────
+  const [licensed, setLicensed]             = useState(false);
+  const [licenseKey, setLicenseKey]         = useState("");
+  const [licenseActivating, setLicenseActivating] = useState(false);
+  const [licenseError, setLicenseError]     = useState("");
+
   // ── First-time setup ────────────────────────────────────────────────────────
   const [setupChecked, setSetupChecked]     = useState(false);
   const [setupNeeded, setSetupNeeded]       = useState(false);
@@ -495,11 +501,16 @@ function App() {
     }
   };
 
-  // ── Setup check on mount ─────────────────────────────────────────────────────
+  // ── License + setup check on mount ──────────────────────────────────────────
   useEffect(()=>{
-    invoke<boolean>('check_setup_complete')
-      .then(ready=>{ setSetupChecked(true); setSetupNeeded(!ready); })
-      .catch(()=>{ setSetupChecked(true); }); // on error assume setup is done
+    Promise.all([
+      invoke<boolean>('check_setup_complete').catch(()=>true),
+      invoke<boolean>('check_license').catch(()=>false),
+    ]).then(([setupOk, licenseOk])=>{
+      setSetupChecked(true);
+      setSetupNeeded(!setupOk);
+      setLicensed(licenseOk);
+    });
   },[]);
 
   useEffect(()=>{
@@ -574,9 +585,9 @@ function App() {
   const wordCount = text.trim()==="" ? 0 : text.trim().split(/\s+/).length;
   const charCount = text.length;
 
-  // ── Model check — runs after setup is confirmed done ─────────────────────────
+  // ── Model check — runs after license + setup are confirmed done ──────────────
   useEffect(()=>{
-    if (!setupChecked || setupNeeded) return;
+    if (!setupChecked || !licensed || setupNeeded) return;
     (async () => {
       // Show debug paths in UI panel
       try {
@@ -641,7 +652,7 @@ function App() {
         } catch {}
       }, 1000);
     })();
-  }, [setupChecked, setupNeeded]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [setupChecked, licensed, setupNeeded]);
 
   // ── Data loaders ─────────────────────────────────────────────────────────────
   const loadHistory = async () => {
@@ -719,6 +730,20 @@ function App() {
   const showToast = (msg:string, ok=true) => {
     setToast({msg,ok});
     setTimeout(()=>setToast(null), 3000);
+  };
+
+  const handleActivateLicense = async () => {
+    if (!licenseKey.trim()) return;
+    setLicenseActivating(true);
+    setLicenseError("");
+    try {
+      await invoke('activate_license', { key: licenseKey.trim() });
+      setLicensed(true);
+    } catch(e) {
+      setLicenseError(String(e));
+    } finally {
+      setLicenseActivating(false);
+    }
   };
 
   const refreshUI = async () => {
@@ -951,6 +976,52 @@ function App() {
     <div style={{background:"#070c17",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}>
       <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
       <span style={{display:"inline-block",animation:"spin 1.2s linear infinite",color:"#3a4d66",fontSize:"22px"}}>⟳</span>
+    </div>
+  );
+
+  if (!licensed) return (
+    <div style={{background:"#070c17",minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:"white",fontFamily:"'Inter',sans-serif",WebkitFontSmoothing:"antialiased",padding:"24px"}}>
+      <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}} @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}`}</style>
+
+      <div style={{textAlign:"center",marginBottom:"28px",animation:"fadeIn .4s ease"}}>
+        <div style={{fontSize:"38px",fontWeight:800,letterSpacing:"-1px",marginBottom:"6px",background:"linear-gradient(135deg,#f0f4ff,#a78bfa)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>Curzon</div>
+        <div style={{fontSize:"11px",color:"#3a4d66",textTransform:"uppercase",letterSpacing:"0.15em"}}>AI Voice Studio</div>
+      </div>
+
+      <div style={{background:"rgba(139,124,248,.08)",border:"1px solid rgba(139,124,248,.2)",borderRadius:"14px",padding:"28px 32px",width:"min(400px,92vw)",animation:"fadeIn .5s ease"}}>
+        <div style={{fontSize:"15px",fontWeight:600,color:"#c4b5fd",marginBottom:"6px"}}>Activate Your License</div>
+        <div style={{fontSize:"13px",color:"#4a5d7a",marginBottom:"20px",lineHeight:"1.5"}}>
+          Enter the license key from your Gumroad purchase email.
+        </div>
+
+        <input
+          type="text"
+          placeholder="XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX"
+          value={licenseKey}
+          onChange={e=>{ setLicenseKey(e.target.value.toUpperCase()); setLicenseError(""); }}
+          onKeyDown={e=>{ if(e.key==="Enter" && !licenseActivating) handleActivateLicense(); }}
+          disabled={licenseActivating}
+          style={{width:"100%",padding:"10px 14px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(139,124,248,0.3)",borderRadius:"8px",color:"#e0e8ff",fontSize:"13px",fontFamily:"monospace",outline:"none",boxSizing:"border-box",marginBottom:"12px",letterSpacing:"0.05em"}}
+        />
+
+        {licenseError && (
+          <div style={{marginBottom:"12px",padding:"10px 14px",background:"rgba(248,113,113,.1)",border:"1px solid rgba(248,113,113,.25)",borderRadius:"8px",color:"#f87171",fontSize:"12.5px"}}>
+            {licenseError}
+          </div>
+        )}
+
+        <button
+          onClick={handleActivateLicense}
+          disabled={licenseActivating || !licenseKey.trim()}
+          style={{width:"100%",padding:"12px",background:licenseActivating?"rgba(124,58,237,0.4)":"linear-gradient(135deg,#7c3aed,#4f46e5)",border:"none",borderRadius:"8px",color:"white",fontSize:"14px",fontWeight:600,cursor:licenseActivating?"wait":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:"8px",opacity:!licenseKey.trim()?0.5:1}}>
+          {licenseActivating && <span style={{display:"inline-block",animation:"spin 1.2s linear infinite"}}>⟳</span>}
+          {licenseActivating ? "Activating…" : "Activate"}
+        </button>
+
+        <div style={{marginTop:"16px",textAlign:"center",fontSize:"12px",color:"#2a3d56"}}>
+          Don't have a license? Purchase at gumroad.com
+        </div>
+      </div>
     </div>
   );
 

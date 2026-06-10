@@ -678,6 +678,88 @@ fn save_f5_voice(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// LICENSE VERIFICATION
+// Update GUMROAD_PERMALINK to match your Gumroad product URL
+// e.g. gumroad.com/l/curzon-voiceai → "curzon-voiceai"
+// ─────────────────────────────────────────────────────────────────────────────
+
+const GUMROAD_PERMALINK: &str = "curzon-voiceai";
+
+fn djb2(s: &str) -> String {
+    let mut h: u64 = 5381;
+    for b in s.bytes() { h = h.wrapping_mul(33).wrapping_add(b as u64); }
+    format!("{:016x}", h)
+}
+
+fn license_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default();
+    std::path::PathBuf::from(home).join("Documents").join("Curzon").join("license.json")
+}
+
+#[tauri::command]
+fn check_license() -> bool {
+    match fs::read_to_string(license_path()) {
+        Ok(s) => s.contains("\"activated\":true"),
+        Err(_) => false,
+    }
+}
+
+#[tauri::command]
+fn activate_license(key: String) -> Result<(), String> {
+    let key = key.trim().to_string();
+    if key.is_empty() {
+        return Err("Please enter your license key.".to_string());
+    }
+
+    // URL-encode the key for the POST body
+    let encoded: String = key.chars().map(|c| {
+        if c.is_alphanumeric() || c == '-' { c.to_string() }
+        else { format!("%{:02X}", c as u32) }
+    }).collect();
+
+    let post_data = format!(
+        "product_permalink={}&license_key={}&increment_uses_count=true",
+        GUMROAD_PERMALINK, encoded
+    );
+
+    let curl = if cfg!(target_os = "windows") { "curl.exe" } else { "curl" };
+    let out = Command::new(curl)
+        .args(["-s", "--max-time", "15", "-X", "POST",
+               "https://api.gumroad.com/v2/licenses/verify",
+               "-d", &post_data])
+        .output()
+        .map_err(|_| "Cannot reach the license server. Check your internet connection.".to_string())?;
+
+    let body = String::from_utf8_lossy(&out.stdout);
+
+    if !body.contains("\"success\":true") && !body.contains("\"success\": true") {
+        let msg = body.split("\"message\"")
+            .nth(1)
+            .and_then(|s| s.splitn(3, '"').nth(2))
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "Invalid license key. Please check and try again.".to_string());
+        return Err(msg);
+    }
+
+    let path = license_path();
+    fs::create_dir_all(path.parent().unwrap())
+        .map_err(|e| format!("Cannot save license: {}", e))?;
+
+    let ts = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+
+    let json = format!(
+        r#"{{"activated":true,"key_hash":"{}","activated_at":{}}}"#,
+        djb2(&key), ts
+    );
+    fs::write(&path, json).map_err(|e| format!("Cannot save license: {}", e))?;
+    Ok(())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // APP ENTRY
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -800,6 +882,8 @@ pub fn run() {
             download_kokoro_model,
             check_setup_complete,
             run_setup,
+            check_license,
+            activate_license,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
