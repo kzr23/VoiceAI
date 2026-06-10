@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::Read;
+use std::io::{BufRead, Read};
 use std::process::{Command, Stdio};
 use std::time::UNIX_EPOCH;
+use tauri::Emitter;
 
 #[derive(Serialize)]
 struct AudioFile {
@@ -46,14 +47,19 @@ fn backend_dir() -> String {
         if p.exists() { return p.to_string_lossy().to_string(); }
     }
 
-    // User Documents fallback — works for both macOS and Windows installed apps.
-    // setup.sh / setup.ps1 places the backend here.
+    // User Documents fallback — checked in order:
+    //   1. ~/Documents/Curzon/backend   (installed via first-launch setup wizard)
+    //   2. ~/Documents/VoiceAI/backend  (legacy dev clone location)
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_default();
-    let docs = std::path::PathBuf::from(&home)
+    let curzon = std::path::PathBuf::from(&home)
+        .join("Documents").join("Curzon").join("backend");
+    if curzon.exists() { return curzon.to_string_lossy().to_string(); }
+
+    let legacy = std::path::PathBuf::from(&home)
         .join("Documents").join("VoiceAI").join("backend");
-    if docs.exists() { return docs.to_string_lossy().to_string(); }
+    if legacy.exists() { return legacy.to_string_lossy().to_string(); }
 
     "../../backend".to_string()
 }
@@ -676,6 +682,92 @@ fn save_f5_voice(
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+// ─────────────────────────────────────────────────────────────────────────────
+// First-launch setup
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn check_setup_complete() -> bool {
+    let bd = backend_dir();
+    let venv = if cfg!(target_os = "windows") {
+        format!("{}\\venv\\Scripts\\python.exe", bd)
+    } else {
+        format!("{}/venv/bin/python3", bd)
+    };
+    if !std::path::Path::new(&venv).exists() { return false; }
+    // Confirm at least the Kokoro model was downloaded
+    let kokoro = format!("{}/models/kokoro/kokoro-v1.0.onnx", bd);
+    std::path::Path::new(&kokoro).exists()
+}
+
+#[tauri::command]
+async fn run_setup(app: tauri::AppHandle) -> Result<(), String> {
+    let resource_dir = app.path().resource_dir()
+        .map_err(|e| format!("resource_dir: {}", e))?;
+
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default();
+    let backend_target = std::path::PathBuf::from(&home)
+        .join("Documents").join("Curzon").join("backend");
+    std::fs::create_dir_all(&backend_target)
+        .map_err(|e| format!("mkdir: {}", e))?;
+
+    let backend_str  = backend_target.to_string_lossy().to_string();
+    let resource_str = resource_dir.to_string_lossy().to_string();
+
+    let (interpreter, script_args): (String, Vec<String>) = if cfg!(target_os = "windows") {
+        let s = resource_dir.join("scripts").join("setup.ps1").to_string_lossy().to_string();
+        ("powershell.exe".into(), vec!["-NoProfile".into(), "-ExecutionPolicy".into(), "Bypass".into(), "-File".into(), s])
+    } else {
+        let s = resource_dir.join("scripts").join("setup.sh").to_string_lossy().to_string();
+        let _ = Command::new("chmod").args(["+x", &s]).status();
+        ("bash".into(), vec![s])
+    };
+
+    let app_clone = app.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut cmd = Command::new(&interpreter);
+        for a in &script_args { cmd.arg(a); }
+        cmd.env("CURZON_BACKEND_DIR",    &backend_str);
+        cmd.env("CURZON_RESOURCE_DIR",   &resource_str);
+        cmd.env("CURZON_NON_INTERACTIVE", "1");
+        cmd.env("PATH", augmented_path());
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => { let _ = app_clone.emit("setup-error", format!("Cannot start setup: {}", e)); return; }
+        };
+
+        if let Some(out) = child.stdout.take() {
+            let a = app_clone.clone();
+            std::thread::spawn(move || {
+                for line in std::io::BufReader::new(out).lines().flatten() {
+                    let _ = a.emit("setup-log", &line);
+                }
+            });
+        }
+        if let Some(err) = child.stderr.take() {
+            let a = app_clone.clone();
+            std::thread::spawn(move || {
+                for line in std::io::BufReader::new(err).lines().flatten() {
+                    let _ = a.emit("setup-log", &line);
+                }
+            });
+        }
+
+        match child.wait() {
+            Ok(s) if s.success() => { let _ = app_clone.emit("setup-done", ()); }
+            Ok(s) => { let _ = app_clone.emit("setup-error", format!("Setup exited with code {:?}", s.code())); }
+            Err(e) => { let _ = app_clone.emit("setup-error", format!("Setup error: {}", e)); }
+        }
+    }).await.map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -706,6 +798,8 @@ pub fn run() {
             delete_custom_voice,
             check_kokoro_downloaded,
             download_kokoro_model,
+            check_setup_complete,
+            run_setup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

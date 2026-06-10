@@ -27,22 +27,28 @@ function Step { Write-Host; Write-Host "  ━━━  $args  ━━━" -Foregrou
 function Sep  { Write-Host "  ─────────────────────────────────────────────────────" -ForegroundColor DarkBlue }
 
 # ── Resolve paths ──────────────────────────────────────────────────────────────
-$ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
-$BackendDir = $null
+$ScriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ResourceDir = $env:CURZON_RESOURCE_DIR
+$BackendDir  = $env:CURZON_BACKEND_DIR
 
-if (Test-Path (Join-Path $ScriptDir "generate.py")) {
-    $BackendDir = $ScriptDir
-} elseif (Test-Path (Join-Path $ScriptDir "backend")) {
-    $BackendDir = Join-Path $ScriptDir "backend"
-} else {
-    Err "Cannot find backend\ folder. Run this script from the Curzon project root."
+if (-not $BackendDir) {
+    if (Test-Path (Join-Path $ScriptDir "generate.py")) {
+        $BackendDir = $ScriptDir
+    } elseif (Test-Path (Join-Path $ScriptDir "backend")) {
+        $BackendDir = Join-Path $ScriptDir "backend"
+    } else {
+        Err "Cannot find backend\ folder. Run this script from the Curzon project root."
+    }
 }
+
+if (-not (Test-Path $BackendDir)) { New-Item -ItemType Directory -Path $BackendDir -Force | Out-Null }
 
 $VenvDir    = Join-Path $BackendDir "venv"
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 $VenvPip    = Join-Path $VenvDir "Scripts\pip.exe"
 
 # ══════════════════════════════════════════════════════════════════════════════
+if (-not $env:CURZON_NON_INTERACTIVE) {
 Clear-Host
 Write-Host
 Write-Host "   ██████╗██╗   ██╗██████╗ ███████╗ ██████╗ ███╗   ██╗" -ForegroundColor Blue
@@ -62,6 +68,9 @@ Write-Host
 
 $continue = Read-Host "  Continue? [Y/n]"
 if ($continue -eq "n" -or $continue -eq "N") { Write-Host "  Setup cancelled."; exit 0 }
+} else {
+    Log "Curzon first-time setup — backend: $BackendDir"
+}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 Step "1/7 · Python 3.11"
@@ -167,6 +176,15 @@ if (-not (Test-Path $VenvDir)) {
 
 if (-not (Test-Path $VenvPython)) {
     Err "Virtual environment creation failed. Check that Python 3.11 supports venv."
+}
+
+# Copy bundled AI scripts from app resources (when called by Curzon app)
+if ($ResourceDir -and (Test-Path (Join-Path $ResourceDir "backend"))) {
+    Log "Copying AI engine scripts..."
+    Copy-Item (Join-Path $ResourceDir "backend\*.py") $BackendDir -Force -ErrorAction SilentlyContinue
+    $vjPath = Join-Path $ResourceDir "backend\voices.json"
+    if (Test-Path $vjPath) { Copy-Item $vjPath $BackendDir -Force }
+    Ok "AI engine scripts ready"
 }
 
 Log "Upgrading pip, setuptools, wheel..."

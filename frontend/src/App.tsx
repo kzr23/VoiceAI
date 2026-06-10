@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import WaveSurfer from "wavesurfer.js";
 import { check, type Update } from "@tauri-apps/plugin-updater";
@@ -498,6 +499,15 @@ function App() {
   const [trainStep, setTrainStep]               = useState(0);
   const [deleteVoiceTarget, setDeleteVoiceTarget] = useState<string|null>(null);
 
+  // ── First-time setup ────────────────────────────────────────────────────────
+  const [setupChecked, setSetupChecked]     = useState(false);
+  const [setupNeeded, setSetupNeeded]       = useState(false);
+  const [setupRunning, setSetupRunning]     = useState(false);
+  const [setupLog, setSetupLog]             = useState<string[]>([]);
+  const [setupComplete, setSetupComplete]   = useState(false);
+  const [setupErr, setSetupErr]             = useState("");
+  const setupLogRef                         = useRef<HTMLDivElement>(null);
+
   // ── Auto-update ─────────────────────────────────────────────────────────────
   const [pendingUpdate, setPendingUpdate]   = useState<Update|null>(null);
   const [updateDismissed, setUpdateDismissed] = useState(false);
@@ -518,6 +528,24 @@ function App() {
       showToast("Update failed: "+String(e), false);
     }
   };
+
+  // ── Setup check on mount ─────────────────────────────────────────────────────
+  useEffect(()=>{
+    invoke<boolean>('check_setup_complete')
+      .then(ready=>{ setSetupChecked(true); setSetupNeeded(!ready); })
+      .catch(()=>{ setSetupChecked(true); }); // on error assume setup is done
+  },[]);
+
+  useEffect(()=>{
+    const strip = (s:string)=>s.replace(/\[[0-9;]*m/g,'').replace(/\r/g,'');
+    const u1 = listen<string>('setup-log', e=>{
+      setSetupLog(p=>[...p.slice(-300), strip(e.payload)]);
+      requestAnimationFrame(()=>{ setupLogRef.current?.scrollTo({top:99999,behavior:'smooth'}); });
+    });
+    const u2 = listen('setup-done', ()=>setSetupComplete(true));
+    const u3 = listen<string>('setup-error', e=>{ setSetupErr(e.payload); setSetupRunning(false); });
+    return ()=>{ u1.then(f=>f()); u2.then(f=>f()); u3.then(f=>f()); };
+  },[]);
 
   // ── Settings panel ──────────────────────────────────────────────────────────
   const [settingsOpen, setSettingsOpen]     = useState(false);
@@ -580,10 +608,9 @@ function App() {
   const wordCount = text.trim()==="" ? 0 : text.trim().split(/\s+/).length;
   const charCount = text.length;
 
-  // ── Model check — runs immediately on mount, independent of waveform ─────────
-  // MUST be a separate useEffect with no guards so it fires even when the
-  // download screen is showing (waveRef.current is null on that screen).
+  // ── Model check — runs after setup is confirmed done ─────────────────────────
   useEffect(()=>{
+    if (!setupChecked || setupNeeded) return;
     (async () => {
       // Show debug paths in UI panel
       try {
@@ -648,7 +675,7 @@ function App() {
         } catch {}
       }, 1000);
     })();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [setupChecked, setupNeeded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Data loaders ─────────────────────────────────────────────────────────────
   const loadHistory = async () => {
@@ -952,6 +979,80 @@ function App() {
   const libPageCount  = Math.ceil(filteredFiles.length / PAGE_SIZE);
   const safeLibPage   = Math.min(libPage, Math.max(0, libPageCount - 1));
   const pagedFiles    = filteredFiles.slice(safeLibPage * PAGE_SIZE, (safeLibPage + 1) * PAGE_SIZE);
+
+  // ── First-time setup screens ─────────────────────────────────────────────────
+  if (!setupChecked) return (
+    <div style={{background:"#070c17",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+      <span style={{display:"inline-block",animation:"spin 1.2s linear infinite",color:"#3a4d66",fontSize:"22px"}}>⟳</span>
+    </div>
+  );
+
+  if (setupNeeded && !setupComplete) return (
+    <div style={{background:"#070c17",minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:"white",fontFamily:"'Inter',sans-serif",WebkitFontSmoothing:"antialiased",padding:"24px"}}>
+      <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}} @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}`}</style>
+
+      <div style={{textAlign:"center",marginBottom:"28px",animation:"fadeIn .4s ease"}}>
+        <div style={{fontSize:"38px",fontWeight:800,letterSpacing:"-1px",marginBottom:"6px",background:"linear-gradient(135deg,#f0f4ff,#a78bfa)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>Curzon</div>
+        <div style={{fontSize:"11px",color:"#3a4d66",textTransform:"uppercase",letterSpacing:"0.15em"}}>AI Voice Studio</div>
+      </div>
+
+      {!setupRunning && !setupErr && (
+        <div style={{background:"rgba(139,124,248,.08)",border:"1px solid rgba(139,124,248,.2)",borderRadius:"14px",padding:"24px 28px",width:"min(420px,92vw)",animation:"fadeIn .5s ease"}}>
+          <div style={{fontSize:"15px",fontWeight:600,color:"#c4b5fd",marginBottom:"8px"}}>First-time Setup Required</div>
+          <div style={{fontSize:"13px",color:"#8896b0",lineHeight:"1.6",marginBottom:"20px"}}>
+            Installs the Python environment and downloads AI voice models.<br/>
+            <strong style={{color:"#a0b0cc"}}>~2–4 GB · 10–30 minutes</strong> (one-time only)
+          </div>
+          <button
+            onClick={()=>{ setSetupRunning(true); invoke('run_setup').catch(e=>{ setSetupErr(String(e)); setSetupRunning(false); }); }}
+            style={{width:"100%",padding:"12px",background:"linear-gradient(135deg,#7c3aed,#4f46e5)",border:"none",borderRadius:"8px",color:"white",fontSize:"14px",fontWeight:600,cursor:"pointer",letterSpacing:"0.02em"}}>
+            Install Now
+          </button>
+        </div>
+      )}
+
+      {(setupRunning || setupErr) && (
+        <div style={{width:"min(640px,92vw)",animation:"fadeIn .3s ease"}}>
+          {setupRunning && !setupErr && (
+            <div style={{display:"flex",alignItems:"center",gap:"10px",marginBottom:"12px",color:"#a78bfa",fontSize:"13px"}}>
+              <span style={{display:"inline-block",animation:"spin 1.2s linear infinite"}}>⟳</span>
+              Setting up — this may take 20–30 minutes…
+            </div>
+          )}
+          <div ref={setupLogRef} style={{background:"#04080f",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"10px",padding:"14px 16px",height:"300px",overflowY:"auto",fontFamily:"'JetBrains Mono','Fira Mono',monospace",fontSize:"11.5px",lineHeight:"1.7",color:"#8fa3bf"}}>
+            {setupLog.length===0
+              ? <span style={{color:"#3a4d66"}}>Starting…</span>
+              : setupLog.map((l,i)=>(
+                  <div key={i} style={{color:l.includes("✓")||l.includes("[OK]")?"#6ee7b7":l.includes("✗")||l.includes("[ERROR]")?"#f87171":l.includes("⚠")||l.includes("[WARN]")?"#fbbf24":"#8fa3bf"}}>{l}</div>
+                ))
+            }
+          </div>
+          {setupErr && (
+            <div style={{marginTop:"12px",padding:"12px 16px",background:"rgba(248,113,113,.1)",border:"1px solid rgba(248,113,113,.25)",borderRadius:"8px",color:"#f87171",fontSize:"12.5px"}}>
+              <strong>Setup failed:</strong> {setupErr}
+              <div style={{color:"#8896b0",marginTop:"6px"}}>You can also run <code style={{background:"rgba(255,255,255,.07)",padding:"1px 6px",borderRadius:"4px"}}>bash setup.sh</code> manually in Terminal, then relaunch.</div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  if (setupComplete) return (
+    <div style={{background:"#070c17",minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:"white",fontFamily:"'Inter',sans-serif",WebkitFontSmoothing:"antialiased"}}>
+      <style>{`@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}`}</style>
+      <div style={{textAlign:"center",animation:"fadeIn .4s ease"}}>
+        <div style={{fontSize:"42px",marginBottom:"16px"}}>✓</div>
+        <div style={{fontSize:"22px",fontWeight:700,color:"#6ee7b7",marginBottom:"8px"}}>Setup Complete!</div>
+        <div style={{fontSize:"14px",color:"#8896b0",marginBottom:"28px"}}>All AI voice models are ready.</div>
+        <button onClick={()=>relaunch()}
+          style={{padding:"12px 32px",background:"linear-gradient(135deg,#7c3aed,#4f46e5)",border:"none",borderRadius:"8px",color:"white",fontSize:"14px",fontWeight:600,cursor:"pointer"}}>
+          Launch Curzon
+        </button>
+      </div>
+    </div>
+  );
 
   // ── Show appropriate screen until model is ready ────────────────────────────
   if (modelReady !== true) {

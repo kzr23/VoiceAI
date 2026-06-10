@@ -15,7 +15,7 @@
 #  Run once before opening Curzon.app for the first time.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-set -euo pipefail
+set -uo pipefail
 
 # ── Terminal colors ────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -31,8 +31,12 @@ sep()  { echo -e "${BLUE}──────────────────�
 # ── Resolve paths ──────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Support running from repo root OR from inside backend/
-if [[ -f "$SCRIPT_DIR/generate.py" ]]; then
+# App-managed setup: honour the path provided by the Tauri app
+if [[ -n "${CURZON_BACKEND_DIR:-}" ]]; then
+    BACKEND_DIR="$CURZON_BACKEND_DIR"
+    mkdir -p "$BACKEND_DIR"
+# Manual setup: detect from script location
+elif [[ -f "$SCRIPT_DIR/generate.py" ]]; then
     BACKEND_DIR="$SCRIPT_DIR"
 elif [[ -d "$SCRIPT_DIR/backend" ]]; then
     BACKEND_DIR="$SCRIPT_DIR/backend"
@@ -44,6 +48,7 @@ VENV_DIR="$BACKEND_DIR/venv"
 PY=""
 
 # ══════════════════════════════════════════════════════════════════════════════
+if [[ -z "${CURZON_NON_INTERACTIVE:-}" ]]; then
 clear
 echo
 echo -e "${BOLD}${BLUE}"
@@ -65,6 +70,9 @@ echo
 
 read -rp "  Continue? [Y/n] " yn
 [[ "${yn,,}" == "n" ]] && echo "  Setup cancelled." && exit 0
+else
+log "Curzon first-time setup — backend: $BACKEND_DIR"
+fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
 step "1/7 · Homebrew"
@@ -131,6 +139,14 @@ if [[ ! -d "$VENV_DIR" ]]; then
     ok "Virtual environment created"
 else
     ok "Virtual environment already exists"
+fi
+
+# Copy bundled AI scripts from app resources (when called by Curzon app)
+if [[ -n "${CURZON_RESOURCE_DIR:-}" ]] && [[ -d "${CURZON_RESOURCE_DIR}/backend" ]]; then
+    log "Copying AI engine scripts..."
+    cp -f "${CURZON_RESOURCE_DIR}/backend/"*.py  "$BACKEND_DIR/" 2>/dev/null || true
+    cp -f "${CURZON_RESOURCE_DIR}/backend/voices.json" "$BACKEND_DIR/" 2>/dev/null || true
+    ok "AI engine scripts ready"
 fi
 
 VPYTHON="$VENV_DIR/bin/python3"
