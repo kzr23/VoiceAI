@@ -14,6 +14,8 @@ Outputs JSON to stdout:
 
 import sys, os, json, time, re
 
+os.environ.pop("PYTHONHASHSEED", None)
+
 def err(msg):
     print(json.dumps({"status": "error", "message": msg}), flush=True)
     sys.exit(1)

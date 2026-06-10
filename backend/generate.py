@@ -17,6 +17,11 @@ import sys, os, time, warnings
 import numpy as np
 warnings.filterwarnings("ignore")
 
+# F5-TTS spawns torch multiprocessing workers (spawn method on macOS) that
+# inherit all env vars. If PYTHONHASHSEED is set to anything invalid those
+# workers die immediately. Unset it here so subprocesses start clean.
+os.environ.pop("PYTHONHASHSEED", None)
+
 if len(sys.argv) < 9:
     print("Usage: generate.py <text> <engine> <emotion> <speed> <pitch> <volume> <style_strength> <trim_silence> [mastering]")
     sys.exit(1)
