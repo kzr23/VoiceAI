@@ -220,6 +220,7 @@ Ok "PyTorch installed"
 Log "Installing Coqui TTS..."
 $env:COQUI_TOS_AGREED = "1"
 & $VenvPip install --quiet "TTS>=0.22.0"
+& $VenvPip install --quiet "numpy>=2.0.2" --upgrade  # re-pin numpy after Coqui may downgrade it
 Ok "Coqui TTS installed"
 
 Log "Installing F5-TTS..."
@@ -228,7 +229,7 @@ Ok "F5-TTS installed"
 
 Log "Installing OpenVoice V2 (from GitHub)..."
 try {
-    & $VenvPip install --quiet "git+https://github.com/myshell-ai/OpenVoice.git@main#egg=openvoice"
+    & $VenvPip install --quiet "git+https://github.com/myshell-ai/OpenVoice.git@main#egg=myshell-openvoice"
     Ok "OpenVoice installed"
 } catch {
     Warn "OpenVoice install had issues — some voice styles may be unavailable"

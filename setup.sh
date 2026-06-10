@@ -187,6 +187,7 @@ ok "PyTorch installed"
 
 log "Installing Coqui TTS (~200 MB including models)..."
 COQUI_TOS_AGREED=1 "$VPIP" install --quiet "TTS>=0.22.0"
+"$VPIP" install --quiet "numpy>=2.0.2" --upgrade  # re-pin numpy after Coqui may downgrade it
 ok "Coqui TTS installed"
 
 log "Installing F5-TTS (zero-shot voice cloning)..."
@@ -195,7 +196,7 @@ ok "F5-TTS installed"
 
 log "Installing OpenVoice V2 (from GitHub)..."
 "$VPIP" install --quiet \
-    "git+https://github.com/myshell-ai/OpenVoice.git@main#egg=openvoice" \
+    "git+https://github.com/myshell-ai/OpenVoice.git@main#egg=myshell-openvoice" \
     || warn "OpenVoice install had issues — some voice styles may be unavailable"
 ok "OpenVoice installed"
 

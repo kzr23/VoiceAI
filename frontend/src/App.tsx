@@ -27,6 +27,21 @@ type DownloadProgress = {
   message?: string;
 };
 
+// ── Setup progress parser ─────────────────────────────────────────────────────
+function parseSetupProgress(log: string[]) {
+  let step = 0, total = 8, stepName = "";
+  let lastLine = "";
+  for (let i = log.length - 1; i >= 0; i--) {
+    const m = log[i].match(/(\d+)\/(\d+)[^·]*·\s*([^━\n]+)/);
+    if (m && !stepName) { step = parseInt(m[1]); total = parseInt(m[2]); stepName = m[3].trim(); }
+    const l = log[i].trim();
+    if (!lastLine && l && !l.includes("━━━") && !l.includes("───") && !l.includes("first-time setup")) lastLine = l.slice(0, 72);
+    if (step && lastLine) break;
+  }
+  const pct = step > 0 ? Math.min(Math.round(((step - 0.5) / total) * 100), 95) : 0;
+  return { step, total, stepName, lastLine, pct };
+}
+
 // ── Formatters ────────────────────────────────────────────────────────────────
 const formatDuration = (s: number) => { if (!s||s<=0) return "00:00"; return `${Math.floor(s/60).toString().padStart(2,"0")}:${Math.floor(s%60).toString().padStart(2,"0")}`; };
 const formatSize = (b: number) => b>=1_048_576 ? (b/1_048_576).toFixed(1)+" MB" : (b/1024).toFixed(1)+" KB";
@@ -334,95 +349,46 @@ const TONE_ORDER: Tone[] = ["Custom","Deep","Warm","Clear","Bright"];
 
 
 // ── DownloadScreen ────────────────────────────────────────────────────────────
-function DownloadScreen({ progress, error, debugInfo }: { progress: DownloadProgress|null; error: string; debugInfo: string }) {
-  const percent  = progress?.percent  ?? 0;
-  const mbDone   = progress?.mb_done  ?? 0;
-  const mbTotal  = progress?.mb_total ?? 1800;
-  const file     = progress?.file     ?? "";
-  const filePct  = progress?.file_pct ?? 0;
-
-  const fileLabel: Record<string, string> = {
-    "checkpoint.pth":    "Converter model weights (~125 MB)",
-    "config.json":       "Model config",
-    "en-default.pth":    "Default English speaker embedding",
-    "en-us.pth":         "American English embedding",
-    "en-br.pth":         "British English embedding",
-    "en-india.pth":      "Indian English embedding",
-    "en-newest.pth":     "Latest English embedding",
-    "en-au.pth":         "Australian English embedding",
-    "openvoice-source":  "OpenVoice library source (~1 MB)",
-  };
+function DownloadScreen({ progress, error }: { progress: DownloadProgress|null; error: string; debugInfo: string }) {
+  const percent = progress?.percent ?? 0;
+  const mbDone  = progress?.mb_done  ?? 0;
+  const mbTotal = progress?.mb_total ?? 703;
+  const file    = progress?.file ?? "";
 
   return (
     <div style={{ backgroundColor:"#070c17", minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", color:"white", WebkitFontSmoothing:"antialiased" }}>
       <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
-      <div style={{ width:"520px", textAlign:"center" }}>
-        <div style={{ fontSize:"48px", fontWeight:800, letterSpacing:"-1px", marginBottom:"6px", background:"linear-gradient(135deg,#f0f4ff,#a78bfa)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>Curzon VoiceAI</div>
+      <div style={{ width:"420px", textAlign:"center" }}>
+        <div style={{ fontSize:"42px", fontWeight:800, letterSpacing:"-1px", marginBottom:"6px", background:"linear-gradient(135deg,#f0f4ff,#a78bfa)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>Curzon VoiceAI</div>
         <div style={{ fontSize:"10px", color:"#3a4d66", textTransform:"uppercase", letterSpacing:"0.15em", marginBottom:"48px" }}>AI Voice Studio</div>
 
-        <div style={{ background:"linear-gradient(180deg,#131e30 0%,#0e1826 100%)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"20px", padding:"36px 40px", boxShadow:"0 12px 40px rgba(0,0,0,0.5),inset 0 1px 0 rgba(255,255,255,0.1)" }}>
-          <div style={{ fontSize:"13px", fontWeight:600, color:"#7a8fad", marginBottom:"8px", letterSpacing:"0.05em" }}>
-            Setting up for first use
-          </div>
-          <div style={{ fontSize:"18px", fontWeight:700, color:"#f0f4ff", marginBottom:"8px" }}>
-            Downloading OpenVoice V2 Model
-          </div>
-          <div style={{ fontSize:"13px", color:"#3a4d66", marginBottom:"32px", lineHeight:1.6 }}>
-            One-time download of ~703 MB.<br/>
-            After this, Curzon VoiceAI works <strong style={{color:"#7a8fad"}}>completely offline</strong> — forever.
-          </div>
-
+        <div style={{ background:"linear-gradient(180deg,#131e30 0%,#0e1826 100%)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"20px", padding:"36px 40px", boxShadow:"0 12px 40px rgba(0,0,0,0.5)" }}>
           {error ? (
-            <div style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.2)", borderRadius:"12px", padding:"16px", color:"#f87171", fontSize:"13px", lineHeight:1.6 }}>
-              Download failed:<br/>{error}<br/><br/>
-              <span style={{ color:"#3a4d66" }}>Check your internet connection and restart the app.</span>
-            </div>
+            <>
+              <div style={{ fontSize:"15px", fontWeight:600, color:"#f87171", marginBottom:"16px" }}>Setup Failed</div>
+              <div style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.2)", borderRadius:"12px", padding:"16px", color:"#f87171", fontSize:"13px", lineHeight:1.6 }}>
+                {error}<br/><br/>
+                <span style={{ color:"#3a4d66" }}>Check your internet connection and restart the app.</span>
+              </div>
+            </>
           ) : (
             <>
-              <div style={{ marginBottom:"20px" }}>
-                <div style={{ display:"flex", justifyContent:"space-between", marginBottom:"8px" }}>
-                  <span style={{ fontSize:"11px", color:"#3a4d66", textTransform:"uppercase", letterSpacing:"0.08em" }}>Overall progress</span>
-                  <span style={{ fontSize:"12px", color:"#6366f1", fontWeight:600 }}>
-                    {mbDone.toFixed(0)} MB / {mbTotal.toFixed(0)} MB
-                  </span>
-                </div>
-                <div style={{ height:"6px", background:"rgba(255,255,255,0.05)", borderRadius:"3px", overflow:"hidden" }}>
-                  <div style={{ height:"100%", width:`${percent}%`, background:"linear-gradient(90deg,#4f46e5,#6366f1)", borderRadius:"3px", transition:"width 0.4s ease" }}/>
-                </div>
-                <div style={{ textAlign:"right", fontSize:"11px", color:"#6366f1", marginTop:"4px" }}>{percent}%</div>
+              <div style={{ display:"flex", alignItems:"center", gap:"10px", marginBottom:"24px", color:"#a78bfa", fontSize:"13px", fontWeight:500 }}>
+                <span style={{ display:"inline-block", animation:"spin 1.4s linear infinite", flexShrink:0 }}>⟳</span>
+                <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                  {file ? `Downloading ${file}…` : progress?.status === "checking" ? "Checking files…" : "Preparing…"}
+                </span>
               </div>
 
-              {file && (
-                <div style={{ background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:"12px", padding:"14px 16px", marginBottom:"20px", textAlign:"left" }}>
-                  <div style={{ fontSize:"10px", color:"#3a4d66", marginBottom:"6px", textTransform:"uppercase", letterSpacing:"0.1em" }}>Current file</div>
-                  <div style={{ fontSize:"13px", color:"#a78bfa", marginBottom:"10px" }}>
-                    {fileLabel[file] ?? file}
-                  </div>
-                  <div style={{ height:"4px", background:"rgba(255,255,255,0.05)", borderRadius:"2px", overflow:"hidden" }}>
-                    <div style={{ height:"100%", width:`${filePct}%`, background:"linear-gradient(90deg,#7c3aed,#6366f1)", borderRadius:"2px", transition:"width 0.3s ease" }}/>
-                  </div>
-                  <div style={{ textAlign:"right", fontSize:"10px", color:"#6366f1", marginTop:"4px" }}>{filePct}%</div>
-                </div>
-              )}
-
-              <div style={{ fontSize:"12px", color:"#3a4d66", display:"flex", alignItems:"center", justifyContent:"center", gap:"8px" }}>
-                <span style={{ display:"inline-block", animation:"spin 1.4s linear infinite" }}>⟳</span>
-                {progress?.status === "checking"      ? "Checking for existing model…"
-                  : progress?.status === "waiting"    ? "Waiting for Python process to start…"
-                  : progress?.status === "downloading" ? `Downloading ${file}…`
-                  : "Preparing…"}
+              <div style={{ height:"6px", background:"rgba(255,255,255,0.05)", borderRadius:"3px", overflow:"hidden", marginBottom:"8px" }}>
+                <div style={{ height:"100%", width:`${percent}%`, background:"linear-gradient(90deg,#4f46e5,#6366f1)", borderRadius:"3px", transition:"width 0.4s ease" }}/>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", fontSize:"11px" }}>
+                <span style={{ color:"#3a4d66" }}>{mbDone.toFixed(0)} MB / {mbTotal.toFixed(0)} MB</span>
+                <span style={{ color:"#6366f1", fontWeight:600 }}>{percent}%</span>
               </div>
             </>
           )}
-        </div>
-
-        {debugInfo && (
-          <div style={{ marginTop:"16px", background:"rgba(255,255,255,0.02)", border:"1px solid rgba(255,255,255,0.05)", borderRadius:"10px", padding:"12px", fontSize:"11px", color:"#3a4d66", textAlign:"left", whiteSpace:"pre-wrap", wordBreak:"break-all" }}>
-            {debugInfo}
-          </div>
-        )}
-        <div style={{ marginTop:"20px", fontSize:"11px", color:"#1e3258" }}>
-          Model saved to Curzon VoiceAI/backend/openvoice_model/ · ~703 MB · once downloaded, fully offline
         </div>
       </div>
     </div>
@@ -999,11 +965,7 @@ function App() {
 
       {!setupRunning && !setupErr && (
         <div style={{background:"rgba(139,124,248,.08)",border:"1px solid rgba(139,124,248,.2)",borderRadius:"14px",padding:"24px 28px",width:"min(420px,92vw)",animation:"fadeIn .5s ease"}}>
-          <div style={{fontSize:"15px",fontWeight:600,color:"#c4b5fd",marginBottom:"8px"}}>First-time Setup Required</div>
-          <div style={{fontSize:"13px",color:"#8896b0",lineHeight:"1.6",marginBottom:"20px"}}>
-            Installs the Python environment and downloads AI voice models.<br/>
-            <strong style={{color:"#a0b0cc"}}>~2–4 GB · 10–30 minutes</strong> (one-time only)
-          </div>
+          <div style={{fontSize:"15px",fontWeight:600,color:"#c4b5fd",marginBottom:"20px"}}>First-time Setup Required</div>
           <button
             onClick={()=>{ setSetupRunning(true); invoke('run_setup').catch(e=>{ setSetupErr(String(e)); setSetupRunning(false); }); }}
             style={{width:"100%",padding:"12px",background:"linear-gradient(135deg,#7c3aed,#4f46e5)",border:"none",borderRadius:"8px",color:"white",fontSize:"14px",fontWeight:600,cursor:"pointer",letterSpacing:"0.02em"}}>
@@ -1012,30 +974,38 @@ function App() {
         </div>
       )}
 
-      {(setupRunning || setupErr) && (
-        <div style={{width:"min(640px,92vw)",animation:"fadeIn .3s ease"}}>
-          {setupRunning && !setupErr && (
-            <div style={{display:"flex",alignItems:"center",gap:"10px",marginBottom:"12px",color:"#a78bfa",fontSize:"13px"}}>
-              <span style={{display:"inline-block",animation:"spin 1.2s linear infinite"}}>⟳</span>
-              Setting up — this may take 20–30 minutes…
-            </div>
-          )}
-          <div ref={setupLogRef} style={{background:"#04080f",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"10px",padding:"14px 16px",height:"300px",overflowY:"auto",fontFamily:"'JetBrains Mono','Fira Mono',monospace",fontSize:"11.5px",lineHeight:"1.7",color:"#8fa3bf"}}>
-            {setupLog.length===0
-              ? <span style={{color:"#3a4d66"}}>Starting…</span>
-              : setupLog.map((l,i)=>(
-                  <div key={i} style={{color:l.includes("✓")||l.includes("[OK]")?"#6ee7b7":l.includes("✗")||l.includes("[ERROR]")?"#f87171":l.includes("⚠")||l.includes("[WARN]")?"#fbbf24":"#8fa3bf"}}>{l}</div>
-                ))
-            }
+      {(setupRunning || setupErr) && (()=>{
+        const { step, total, stepName, lastLine, pct } = parseSetupProgress(setupLog);
+        return (
+          <div style={{width:"min(420px,92vw)",animation:"fadeIn .3s ease"}}>
+            {setupRunning && !setupErr && (
+              <div style={{background:"rgba(139,124,248,.08)",border:"1px solid rgba(139,124,248,.2)",borderRadius:"14px",padding:"24px 28px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:"10px",marginBottom:"18px",color:"#a78bfa",fontSize:"13px",fontWeight:500}}>
+                  <span style={{display:"inline-block",animation:"spin 1.2s linear infinite",flexShrink:0}}>⟳</span>
+                  <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {step > 0 ? `Step ${step} of ${total} — ${stepName}` : "Starting setup…"}
+                  </span>
+                </div>
+                <div style={{height:"6px",background:"rgba(255,255,255,0.07)",borderRadius:"3px",overflow:"hidden",marginBottom:"8px"}}>
+                  <div style={{height:"100%",width:`${pct}%`,background:"linear-gradient(90deg,#7c3aed,#6366f1)",borderRadius:"3px",transition:"width 0.6s ease"}}/>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:"11px"}}>
+                  <span style={{color:"#4a5d7a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"80%"}}>{lastLine || "Please wait…"}</span>
+                  <span style={{color:"#6366f1",fontWeight:600,flexShrink:0,marginLeft:"8px"}}>{pct}%</span>
+                </div>
+              </div>
+            )}
+            {setupErr && (
+              <div style={{padding:"16px 20px",background:"rgba(248,113,113,.1)",border:"1px solid rgba(248,113,113,.25)",borderRadius:"12px",color:"#f87171",fontSize:"13px"}}>
+                <strong>Setup failed:</strong> {setupErr}
+                <div style={{color:"#8896b0",marginTop:"8px"}}>
+                  You can also run <code style={{background:"rgba(255,255,255,.07)",padding:"2px 7px",borderRadius:"4px"}}>bash setup.sh</code> in Terminal, then relaunch.
+                </div>
+              </div>
+            )}
           </div>
-          {setupErr && (
-            <div style={{marginTop:"12px",padding:"12px 16px",background:"rgba(248,113,113,.1)",border:"1px solid rgba(248,113,113,.25)",borderRadius:"8px",color:"#f87171",fontSize:"12.5px"}}>
-              <strong>Setup failed:</strong> {setupErr}
-              <div style={{color:"#8896b0",marginTop:"6px"}}>You can also run <code style={{background:"rgba(255,255,255,.07)",padding:"1px 6px",borderRadius:"4px"}}>bash setup.sh</code> manually in Terminal, then relaunch.</div>
-            </div>
-          )}
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 
