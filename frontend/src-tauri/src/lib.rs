@@ -166,14 +166,17 @@ fn openvoice_model_dir() -> String {
 #[tauri::command]
 fn check_model_downloaded() -> bool {
     let ov_dir        = openvoice_model_dir();
-    let ov_checkpoint = format!("{}/converter/checkpoint.pth", ov_dir);
-    let ov_base_se    = format!("{}/base_speakers/ses/en-default.pth", ov_dir);
+    // download_model.py saves into checkpoints_v2/ subfolder
+    let ov_checkpoint = format!("{}/checkpoints_v2/converter/checkpoint.pth", ov_dir);
+    let ov_base_se    = format!("{}/checkpoints_v2/base_speakers/ses/default.pth", ov_dir);
+    let ov_en_ckpt    = format!("{}/checkpoints_v2/base_speakers/EN/checkpoint.pth", ov_dir);
     let checkpoint_ok = std::path::Path::new(&ov_checkpoint)
         .metadata().map(|m| m.len() > 100_000_000).unwrap_or(false);
-    let ov_pkg = format!("{}/OpenVoice/openvoice/__init__.py", ov_dir);
+    let en_ckpt_ok = std::path::Path::new(&ov_en_ckpt)
+        .metadata().map(|m| m.len() > 100_000_000).unwrap_or(false);
     checkpoint_ok
         && std::path::Path::new(&ov_base_se).exists()
-        && std::path::Path::new(&ov_pkg).exists()
+        && en_ckpt_ok
 }
 
 #[tauri::command]

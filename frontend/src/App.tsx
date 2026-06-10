@@ -349,7 +349,7 @@ const TONE_ORDER: Tone[] = ["Custom","Deep","Warm","Clear","Bright"];
 
 
 // ── DownloadScreen ────────────────────────────────────────────────────────────
-function DownloadScreen({ progress, error }: { progress: DownloadProgress|null; error: string; debugInfo: string }) {
+function DownloadScreen({ progress, error, onRetry }: { progress: DownloadProgress|null; error: string; debugInfo: string; onRetry?: () => void }) {
   const percent = progress?.percent ?? 0;
   const mbDone  = progress?.mb_done  ?? 0;
   const mbTotal = progress?.mb_total ?? 703;
@@ -366,10 +366,15 @@ function DownloadScreen({ progress, error }: { progress: DownloadProgress|null; 
           {error ? (
             <>
               <div style={{ fontSize:"15px", fontWeight:600, color:"#f87171", marginBottom:"16px" }}>Setup Failed</div>
-              <div style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.2)", borderRadius:"12px", padding:"16px", color:"#f87171", fontSize:"13px", lineHeight:1.6 }}>
+              <div style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.2)", borderRadius:"12px", padding:"16px", color:"#f87171", fontSize:"13px", lineHeight:1.6, marginBottom:"16px" }}>
                 {error}<br/><br/>
-                <span style={{ color:"#3a4d66" }}>Check your internet connection and restart the app.</span>
+                <span style={{ color:"#3a4d66" }}>Check your internet connection and try again.</span>
               </div>
+              {onRetry && (
+                <button onClick={onRetry} style={{ background:"linear-gradient(135deg,#4f46e5,#6366f1)", border:"none", borderRadius:"10px", color:"white", cursor:"pointer", fontSize:"13px", fontWeight:600, padding:"10px 28px" }}>
+                  Retry Download
+                </button>
+              )}
             </>
           ) : (
             <>
@@ -401,6 +406,7 @@ function App() {
   const [debugInfo, setDebugInfo]           = useState("");
   const [dlProgress, setDlProgress]         = useState<DownloadProgress|null>(null);
   const [dlError, setDlError]               = useState("");
+  const [dlRetryCount, setDlRetryCount]     = useState(0);
 
   // ── Core state ──────────────────────────────────────────────────────────────
   const [text, setText]                     = useState("");
@@ -652,7 +658,7 @@ function App() {
         } catch {}
       }, 1000);
     })();
-  }, [setupChecked, licensed, setupNeeded]);
+  }, [setupChecked, licensed, setupNeeded, dlRetryCount]);
 
   // ── Data loaders ─────────────────────────────────────────────────────────────
   const loadHistory = async () => {
@@ -1099,7 +1105,9 @@ function App() {
   if (modelReady !== true) {
     // Download already started (or failed) → show full download screen
     if (dlProgress !== null || dlError) {
-      return <DownloadScreen progress={dlProgress} error={dlError} debugInfo={debugInfo} />;
+      return <DownloadScreen progress={dlProgress} error={dlError} debugInfo={debugInfo}
+        onRetry={dlError ? () => { setDlError(""); setDlProgress(null); setDlRetryCount(c => c + 1); } : undefined}
+      />;
     }
     // Still checking disk — show a minimal splash so returning users don't see the download screen
     return (
