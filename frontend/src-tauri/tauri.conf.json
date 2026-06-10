@@ -43,7 +43,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "REPLACE_WITH_YOUR_TAURI_PUBLIC_KEY",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZDRkRCRTI0MzVDRDcwMjAKUldRZ2NNMDFKTDc5YkcvdEZOdTNtYVpqdEdHdFF5ZG9ycVdRY0ZHTFhYajFiTUpmN2pSZjhtZDYK",
       "endpoints": [
         "https://github.com/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME/releases/latest/download/latest.json"
       ],
