@@ -46,6 +46,9 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
 
+    permissions:
+      contents: write
+
     steps:
       # ── Checkout ─────────────────────────────────────────────────────────────
       - uses: actions/checkout@v4
