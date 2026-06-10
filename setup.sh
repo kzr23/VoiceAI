@@ -218,7 +218,31 @@ EOF
 ok "NLTK data downloaded"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-step "6/7 · Kokoro Voice Model  (~100 MB)"
+step "6/8 · Piper Voice Models"
+# ═══════════════════════════════════════════════════════════════════════════════
+PIPER_DIR="$BACKEND_DIR/models/piper"
+mkdir -p "$PIPER_DIR"
+PIPER_BASE="https://huggingface.co/rhasspy/piper-voices/resolve/main"
+
+download_piper() {
+    local model="$1" lang_path="$2"
+    local onnx="$PIPER_DIR/${model}.onnx"
+    local url="${PIPER_BASE}/${lang_path}/${model}.onnx"
+    if [[ -f "$onnx" ]] && [[ $(stat -f%z "$onnx" 2>/dev/null || echo 0) -gt 100000 ]]; then
+        ok "${model} already present"
+    else
+        log "Downloading ${model}..."
+        curl -fsSL --retry 3 -o "$onnx"          "${url}"      || warn "${model} download failed"
+        curl -fsSL --retry 3 -o "${onnx}.json"   "${url}.json" || warn "${model}.json download failed"
+        [[ -f "$onnx" ]] && ok "${model} downloaded" || warn "${model} missing — Thorsten/Kerstin voices may not work"
+    fi
+}
+
+download_piper "de_DE-thorsten-high" "de/de_DE/thorsten/high"
+download_piper "de_DE-kerstin-low"   "de/de_DE/kerstin/low"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+step "7/8 · Kokoro Voice Model  (~100 MB)"
 # ═══════════════════════════════════════════════════════════════════════════════
 KOKORO_DIR="$BACKEND_DIR/models/kokoro"
 KOKORO_ONNX="$KOKORO_DIR/kokoro-v1.0.onnx"
@@ -234,7 +258,7 @@ else
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-step "7/7 · OpenVoice V2 Models  (~1.8 GB)"
+step "8/8 · OpenVoice V2 Models  (~1.8 GB)"
 # ═══════════════════════════════════════════════════════════════════════════════
 OV_DIR="$BACKEND_DIR/openvoice_model"
 OV_CKPT="$OV_DIR/converter/checkpoint.pth"

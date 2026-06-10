@@ -248,7 +248,35 @@ print('NLTK data ready')
 Ok "NLTK data downloaded"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-Step "6/7 · Kokoro Voice Model  (~100 MB)"
+Step "6/8 · Piper Voice Models"
+# ═══════════════════════════════════════════════════════════════════════════════
+$PiperDir  = Join-Path $BackendDir "models\piper"
+New-Item -ItemType Directory -Force -Path $PiperDir | Out-Null
+$PiperBase = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
+
+function Download-PiperVoice {
+    param([string]$Model, [string]$LangPath)
+    $onnxPath = Join-Path $PiperDir "$Model.onnx"
+    $jsonPath = Join-Path $PiperDir "$Model.onnx.json"
+    if ((Test-Path $onnxPath) -and (Get-Item $onnxPath).Length -gt 100000) {
+        Ok "$Model already present"
+    } else {
+        Log "Downloading $Model..."
+        try {
+            Invoke-WebRequest -Uri "$PiperBase/$LangPath/$Model.onnx"      -OutFile $onnxPath -UseBasicParsing -ErrorAction Stop
+            Invoke-WebRequest -Uri "$PiperBase/$LangPath/$Model.onnx.json" -OutFile $jsonPath -UseBasicParsing -ErrorAction Stop
+            Ok "$Model downloaded"
+        } catch {
+            Warn "$Model download failed — Thorsten/Kerstin voices may not work: $_"
+        }
+    }
+}
+
+Download-PiperVoice -Model "de_DE-thorsten-high" -LangPath "de/de_DE/thorsten/high"
+Download-PiperVoice -Model "de_DE-kerstin-low"   -LangPath "de/de_DE/kerstin/low"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+Step "7/8 · Kokoro Voice Model  (~100 MB)"
 # ═══════════════════════════════════════════════════════════════════════════════
 $KokoroDir  = Join-Path $BackendDir "models\kokoro"
 $KokoroOnnx = Join-Path $KokoroDir "kokoro-v1.0.onnx"
@@ -267,7 +295,7 @@ if ((Test-Path $KokoroOnnx) -and (Get-Item $KokoroOnnx).Length -gt 10000000) {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-Step "7/7 · OpenVoice V2 Models  (~1.8 GB)"
+Step "8/8 · OpenVoice V2 Models  (~1.8 GB)"
 # ═══════════════════════════════════════════════════════════════════════════════
 $OvDir   = Join-Path $BackendDir "openvoice_model"
 $OvCkpt  = Join-Path $OvDir "converter\checkpoint.pth"
