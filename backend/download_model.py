@@ -3,15 +3,9 @@
 download_model.py – OpenVoice V2 model downloader for VoiceAI (Tauri)
 
 Downloads OpenVoice V2 checkpoints from HuggingFace into:
-  <backend_dir>/openvoice_model/checkpoints_v2/
+  <backend_dir>/openvoice_model/
 
 Progress is written to: <backend_dir>/download_progress.json
-
-Skip logic: if all required files already present → writes "already_downloaded"
-and exits immediately. Never re-downloads.
-
-Install deps once:
-    pip3.11 install openvoice-tts  (or: pip3.11 install git+https://github.com/myshell-ai/OpenVoice)
 """
 
 import sys, os, json, time, urllib.request
@@ -38,21 +32,21 @@ def err(msg):
     sys.stderr.write(f"[download] FATAL: {msg}\n"); sys.stderr.flush()
     sys.exit(1)
 
-# OpenVoice V2 files — HuggingFace myshell-ai/OpenVoice
+# OpenVoice V2 — HuggingFace myshell-ai/OpenVoiceV2
+# Files live at repo root (no checkpoints_v2/ prefix)
 HF_BASE = "https://huggingface.co/myshell-ai/OpenVoiceV2/resolve/main"
 MODEL_FILES = [
-    ("checkpoints_v2/converter/checkpoint.pth",       350_000_000),
-    ("checkpoints_v2/converter/config.json",                5_000),
-    ("checkpoints_v2/base_speakers/ses/default.pth",      500_000),
-    ("checkpoints_v2/base_speakers/ses/whispering.pth",   500_000),
-    ("checkpoints_v2/base_speakers/ses/cheerful.pth",     500_000),
-    ("checkpoints_v2/base_speakers/ses/terrified.pth",    500_000),
-    ("checkpoints_v2/base_speakers/ses/angry.pth",        500_000),
-    ("checkpoints_v2/base_speakers/ses/sad.pth",          500_000),
-    ("checkpoints_v2/base_speakers/EN/checkpoint.pth",350_000_000),
-    ("checkpoints_v2/base_speakers/EN/config.json",        5_000),
-    ("checkpoints_v2/base_speakers/EN/en_default_se.pth", 500_000),
-    ("checkpoints_v2/base_speakers/EN/en_style_se.pth",   500_000),
+    ("converter/checkpoint.pth",          350_000_000),
+    ("converter/config.json",                   5_000),
+    ("base_speakers/ses/en-default.pth",      500_000),
+    ("base_speakers/ses/en-newest.pth",       500_000),
+    ("base_speakers/ses/en-us.pth",           500_000),
+    ("base_speakers/ses/en-au.pth",           500_000),
+    ("base_speakers/ses/en-br.pth",           500_000),
+    ("base_speakers/ses/en-india.pth",        500_000),
+    ("base_speakers/ses/es.pth",              500_000),
+    ("base_speakers/ses/fr.pth",              500_000),
+    ("base_speakers/ses/zh.pth",              500_000),
 ]
 TOTAL_BYTES = sum(s for _, s in MODEL_FILES)
 
