@@ -118,9 +118,8 @@ jobs:
             - **macOS**: Download `Curzon_*_universal.dmg`, open it, drag Curzon to Applications
             - **Windows**: Download `Curzon_*_x64-setup.exe` and run it
 
-            After installing, run the setup script once to ensure all models are up to date:
-            - macOS: `bash setup.sh`
-            - Windows: double-click `setup.bat`
+            On first launch, Curzon will automatically install all AI models (~2–4 GB).
+            This takes 10–30 minutes and only happens once — no manual steps needed.
           releaseDraft: false
           prerelease: false
           projectPath: frontend
