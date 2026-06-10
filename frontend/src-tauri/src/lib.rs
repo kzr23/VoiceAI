@@ -311,7 +311,6 @@ fn generate_voice(
         .arg(style_strength.unwrap_or(50.0).to_string())
         .arg(if trim_silence.unwrap_or(false) { "1" } else { "0" })
         .arg(mastering_preset.unwrap_or_else(|| "none".to_string()))
-        .env("PYTHONHASHSEED", "random")
         .env("PATH", augmented_path())
         .output()
         .map_err(|e| format!("Failed to spawn python ({}): {}", py, e))?;

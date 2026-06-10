@@ -174,6 +174,16 @@ def measure_voice_stats(wav_path):
 
 ref_stats = measure_voice_stats(ref_wav_dest)
 
+# ── Transcribe reference audio (stored so F5-TTS skips Whisper at gen time) ──
+ref_text = ""
+try:
+    import torch
+    from f5_tts.infer.utils_infer import transcribe
+    ref_text = transcribe(ref_wav_dest).strip()
+    sys.stderr.write(f"[train] Transcribed ref_text: {ref_text[:80]}\n")
+except Exception as te:
+    sys.stderr.write(f"[train] Transcription skipped (non-fatal): {te}\n")
+
 # ── Update voices.json ────────────────────────────────────────────────────────
 try:
     existing = []
@@ -182,12 +192,13 @@ try:
             existing = json.load(f)
     existing = [v for v in existing if v.get("name") != voice_name]
     entry = {
-        "id":      voice_id,
-        "name":    voice_name,
-        "gender":  gender,
-        "ref_wav": os.path.basename(ref_wav_dest),   # XTTS-v2 reference audio
-        "created": int(time.time()),
-        "engine":  f"f5tts|{voice_id}",
+        "id":       voice_id,
+        "name":     voice_name,
+        "gender":   gender,
+        "ref_wav":  os.path.basename(ref_wav_dest),
+        "ref_text": ref_text,
+        "created":  int(time.time()),
+        "engine":   f"f5tts|{voice_id}",
     }
     if ref_stats:
         entry["ref_stats"] = ref_stats
