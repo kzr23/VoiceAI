@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "identifier": "com.curzon.voiceai",
   "build": {
-    "frontendDist": "dist",
+    "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
