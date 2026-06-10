@@ -151,110 +151,12 @@ fn wav_duration(path: &str) -> f64 {
 fn history_dir()              -> String { format!("{}/history",       backend_dir()) }
 fn custom_voices_dir()        -> String { format!("{}/custom_voices", backend_dir()) }
 fn custom_voices_manifest()   -> String { format!("{}/voices.json",   custom_voices_dir()) }
-fn progress_file_path()       -> String { format!("{}/download_progress.json", backend_dir()) }
-fn stderr_log_path()          -> String { format!("{}/download_stderr.log", backend_dir()) }
 fn kokoro_model_dir()         -> String { format!("{}/models/kokoro", backend_dir()) }
-
-fn openvoice_model_dir() -> String {
-    format!("{}/openvoice_model", backend_dir())
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MODEL DOWNLOAD
-// ─────────────────────────────────────────────────────────────────────────────
-
-#[tauri::command]
-fn check_model_downloaded() -> bool {
-    let ov_dir        = openvoice_model_dir();
-    let ov_checkpoint = format!("{}/converter/checkpoint.pth", ov_dir);
-    let ov_base_se    = format!("{}/base_speakers/ses/en-default.pth", ov_dir);
-    let checkpoint_ok = std::path::Path::new(&ov_checkpoint)
-        .metadata().map(|m| m.len() > 100_000_000).unwrap_or(false);
-    checkpoint_ok && std::path::Path::new(&ov_base_se).exists()
-}
-
-#[tauri::command]
-fn read_download_progress() -> String {
-    let path = progress_file_path();
-    match fs::read_to_string(&path) {
-        Ok(s) if !s.trim().is_empty() => s,
-        _ => r#"{"status":"waiting"}"#.to_string(),
-    }
-}
-
-#[tauri::command]
-fn read_stderr_log() -> String {
-    let path = stderr_log_path();
-    match fs::read_to_string(&path) {
-        Ok(s) => {
-            let bytes = s.as_bytes();
-            if bytes.len() > 4096 {
-                String::from_utf8_lossy(&bytes[bytes.len()-4096..]).to_string()
-            } else { s }
-        }
-        Err(_) => String::new(),
-    }
-}
-
-#[tauri::command]
-fn start_download() -> Result<String, String> {
-    let py     = python_exe();
-    let dir    = backend_dir();
-    let script = format!("{}/download_model.py", dir);
-    let log    = stderr_log_path();
-
-    if !std::path::Path::new(&script).exists() {
-        return Err(format!(
-            "download_model.py not found at:\n  {}\n\nbackend_dir resolved to:\n  {}",
-            script, dir
-        ));
-    }
-
-    let (py_ok, py_ver) = match Command::new(&py).arg("--version").output() {
-        Ok(out) => {
-            let v = String::from_utf8_lossy(&out.stdout).to_string()
-                  + &String::from_utf8_lossy(&out.stderr);
-            (v.contains("Python 3"), v.trim().to_string())
-        }
-        Err(e) => (false, format!("exec failed: {}", e)),
-    };
-
-    if !py_ok {
-        return Err(format!(
-            "Python 3 not found.\n\nTried: {}\nResult: {}\n\nmacOS: brew install python@3.11\nWindows: https://www.python.org/downloads/",
-            py, py_ver
-        ));
-    }
-
-    let already_done = fs::read_to_string(progress_file_path())
-        .map(|s| s.contains("\"status\":\"done\"") || s.contains("\"status\":\"already_downloaded\""))
-        .unwrap_or(false);
-    if already_done { return Ok("Model already downloaded".to_string()); }
-    let _ = fs::remove_file(progress_file_path());
-
-    let stderr_file = std::fs::OpenOptions::new()
-        .create(true).write(true).truncate(true)
-        .open(&log).map(Stdio::from).unwrap_or_else(|_| Stdio::null());
-
-    Command::new(&py)
-        .arg(&script)
-        .env("PATH", augmented_path())
-        .stdout(Stdio::null())
-        .stderr(stderr_file)
-        .spawn()
-        .map_err(|e| format!("Failed to spawn Python: {}\n(exe: {})", e, py))?;
-
-    Ok(format!(
-        "Spawned OK\npython: {}\nversion: {}\nscript: {}",
-        py, py_ver, script
-    ))
-}
 
 #[tauri::command]
 fn debug_paths() -> String {
     let py  = python_exe();
     let dir = backend_dir();
-    let script = format!("{}/download_model.py", dir);
     let (py_ok, py_ver) = match Command::new(&py).arg("--version").output() {
         Ok(out) => {
             let v = String::from_utf8_lossy(&out.stdout).to_string()
@@ -264,20 +166,10 @@ fn debug_paths() -> String {
         Err(e) => (false, format!("exec failed: {}", e)),
     };
     format!(
-        "exe:          {}\npython:       {}\npy_version:   {}\npy_ok:        {}\nbackend_dir:  {}\nscript:       {}\nscript_ok:    {}\nmodel_ready:  {}",
+        "exe:         {}\npython:      {}\npy_version:  {}\npy_ok:       {}\nbackend_dir: {}",
         std::env::current_exe().map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|_| "?".to_string()),
-        py, py_ver, py_ok, dir, script,
-        std::path::Path::new(&script).exists(),
-        check_model_downloaded()
+        py, py_ver, py_ok, dir
     )
-}
-
-#[tauri::command]
-fn get_progress_file_path() -> String { progress_file_path() }
-
-#[tauri::command]
-async fn download_xtts_model(_window: tauri::Window) -> Result<String, String> {
-    start_download()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -293,7 +185,7 @@ fn generate_voice(
 ) -> Result<String, String> {
     let py = python_exe();
     let mut engine = voice_engine.unwrap_or_else(|| voice.clone());
-    for prefix in &["openvoice_v2|", "f5tts|"] {
+    for prefix in &["f5tts|"] {
         if engine.starts_with(prefix) && engine.matches('|').count() == 1 {
             let abs_voices_dir = std::fs::canonicalize(custom_voices_dir())
                 .unwrap_or_else(|_| std::path::PathBuf::from(custom_voices_dir()));
@@ -852,13 +744,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
-            check_model_downloaded,
-            start_download,
             debug_paths,
-            download_xtts_model,
-            read_download_progress,
-            read_stderr_log,
-            get_progress_file_path,
             generate_voice,
             enhance_script,
             stop_audio,

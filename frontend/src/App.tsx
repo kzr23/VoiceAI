@@ -17,15 +17,6 @@ type Tone = "Deep"|"Warm"|"Clear"|"Bright"|"Custom";
 type VoiceEntry = { id: string; name: string; gender: "Female"|"Male"; tone: Tone; engine: string; isCustom?: boolean; category?: "Kokoro"|"Custom"; lang?: string };
 
 // ── Download progress event from Rust ─────────────────────────────────────────
-type DownloadProgress = {
-  status: "checking"|"waiting"|"already_downloaded"|"downloading"|"done"|"error";
-  file?: string;
-  percent?: number;
-  file_pct?: number;
-  mb_done?: number;
-  mb_total?: number;
-  message?: string;
-};
 
 // ── Setup progress parser ─────────────────────────────────────────────────────
 function parseSetupProgress(log: string[]) {
@@ -348,66 +339,8 @@ const BUILT_IN_VOICES: VoiceEntry[] = [
 const TONE_ORDER: Tone[] = ["Custom","Deep","Warm","Clear","Bright"];
 
 
-// ── DownloadScreen ────────────────────────────────────────────────────────────
-function DownloadScreen({ progress, error, onRetry }: { progress: DownloadProgress|null; error: string; debugInfo: string; onRetry?: () => void }) {
-  const percent = progress?.percent ?? 0;
-  const mbDone  = progress?.mb_done  ?? 0;
-  const mbTotal = progress?.mb_total ?? 703;
-  const file    = progress?.file ?? "";
-
-  return (
-    <div style={{ backgroundColor:"#070c17", minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", color:"white", WebkitFontSmoothing:"antialiased" }}>
-      <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
-      <div style={{ width:"420px", textAlign:"center" }}>
-        <div style={{ fontSize:"42px", fontWeight:800, letterSpacing:"-1px", marginBottom:"6px", background:"linear-gradient(135deg,#f0f4ff,#a78bfa)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>Curzon VoiceAI</div>
-        <div style={{ fontSize:"10px", color:"#3a4d66", textTransform:"uppercase", letterSpacing:"0.15em", marginBottom:"48px" }}>AI Voice Studio</div>
-
-        <div style={{ background:"linear-gradient(180deg,#131e30 0%,#0e1826 100%)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"20px", padding:"36px 40px", boxShadow:"0 12px 40px rgba(0,0,0,0.5)" }}>
-          {error ? (
-            <>
-              <div style={{ fontSize:"15px", fontWeight:600, color:"#f87171", marginBottom:"16px" }}>Setup Failed</div>
-              <div style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.2)", borderRadius:"12px", padding:"16px", color:"#f87171", fontSize:"13px", lineHeight:1.6, marginBottom:"16px" }}>
-                {error}<br/><br/>
-                <span style={{ color:"#3a4d66" }}>Check your internet connection and try again.</span>
-              </div>
-              {onRetry && (
-                <button onClick={onRetry} style={{ background:"linear-gradient(135deg,#4f46e5,#6366f1)", border:"none", borderRadius:"10px", color:"white", cursor:"pointer", fontSize:"13px", fontWeight:600, padding:"10px 28px" }}>
-                  Retry Download
-                </button>
-              )}
-            </>
-          ) : (
-            <>
-              <div style={{ display:"flex", alignItems:"center", gap:"10px", marginBottom:"24px", color:"#a78bfa", fontSize:"13px", fontWeight:500 }}>
-                <span style={{ display:"inline-block", animation:"spin 1.4s linear infinite", flexShrink:0 }}>⟳</span>
-                <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                  {file ? `Downloading ${file}…` : progress?.status === "checking" ? "Checking files…" : "Preparing…"}
-                </span>
-              </div>
-
-              <div style={{ height:"6px", background:"rgba(255,255,255,0.05)", borderRadius:"3px", overflow:"hidden", marginBottom:"8px" }}>
-                <div style={{ height:"100%", width:`${percent}%`, background:"linear-gradient(90deg,#4f46e5,#6366f1)", borderRadius:"3px", transition:"width 0.4s ease" }}/>
-              </div>
-              <div style={{ display:"flex", justifyContent:"space-between", fontSize:"11px" }}>
-                <span style={{ color:"#3a4d66" }}>{mbDone.toFixed(0)} MB / {mbTotal.toFixed(0)} MB</span>
-                <span style={{ color:"#6366f1", fontWeight:600 }}>{percent}%</span>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function App() {
-  // ── Model download state ─────────────────────────────────────────────────────
-  const [modelReady, setModelReady]         = useState<boolean|null>(null); // null=checking
-  const [debugInfo, setDebugInfo]           = useState("");
-  const [dlProgress, setDlProgress]         = useState<DownloadProgress|null>(null);
-  const [dlError, setDlError]               = useState("");
-  const [dlRetryCount, setDlRetryCount]     = useState(0);
-
   // ── Core state ──────────────────────────────────────────────────────────────
   const [text, setText]                     = useState("");
   const [voice, setVoice]                   = useState("ljspeech_tacotron2");
@@ -552,7 +485,7 @@ function App() {
     ...customVoices.map(cv => ({
       id: cv.id, name: cv.name, gender: cv.gender as "Female"|"Male",
       tone: "Custom" as Tone,
-      engine: (cv.engine && cv.engine !== "xtts_v2") ? cv.engine : `f5tts|${cv.id}`, isCustom: true, category: "Custom" as const,
+      engine: (cv.engine && cv.engine !== "xtts_v2" && !cv.engine.startsWith("openvoice_v2")) ? cv.engine : `f5tts|${cv.id}`, isCustom: true, category: "Custom" as const,
     })),
     ...BUILT_IN_VOICES,
   ];
@@ -590,75 +523,6 @@ function App() {
 
   const wordCount = text.trim()==="" ? 0 : text.trim().split(/\s+/).length;
   const charCount = text.length;
-
-  // ── Model check — runs after license + setup are confirmed done ──────────────
-  useEffect(()=>{
-    if (!setupChecked || !licensed || setupNeeded) return;
-    (async () => {
-      // Show debug paths in UI panel
-      try {
-        const paths = await invoke<string>("debug_paths");
-        setDebugInfo(paths);
-      } catch(e) { setDebugInfo("debug_paths failed: " + String(e)); }
-
-      // Primary check — actual files on disk
-      let already = false;
-      try {
-        already = await invoke<boolean>("check_model_downloaded");
-      } catch {
-        setModelReady(true); // Rust commands not registered (dev/test mode)
-        return;
-      }
-
-      if (already) { setModelReady(true); return; }
-
-      // Secondary check — trust progress.json "done" status.
-      // Handles the case where xtts_model_dir() hasn't found the right path yet.
-      try {
-        const raw = await invoke<string>("read_download_progress");
-        if (raw && (raw.includes('"done"') || raw.includes('"already_downloaded"'))) {
-          setModelReady(true);
-          return;
-        }
-      } catch {}
-
-      // Spawn the downloader
-      try {
-        await invoke<string>("start_download");
-      } catch (e) {
-        setDlError(String(e));
-        return;
-      }
-
-      // Poll every 1s
-      let stuckTicks = 0;
-      const pollInterval = setInterval(async () => {
-        try {
-          const raw = await invoke<string>("read_download_progress");
-          if (!raw || raw.includes('"waiting"')) {
-            stuckTicks++;
-            if (stuckTicks % 3 === 0) {
-              try {
-                const log = await invoke<string>("read_stderr_log");
-                if (log?.trim()) setDebugInfo("── stderr ──\n" + log.slice(-2000));
-              } catch {}
-            }
-            return;
-          }
-          stuckTicks = 0;
-          const p: DownloadProgress = JSON.parse(raw);
-          setDlProgress(p);
-          if (p.status === "done" || p.status === "already_downloaded") {
-            clearInterval(pollInterval);
-            setTimeout(() => setModelReady(true), 600);
-          } else if (p.status === "error") {
-            clearInterval(pollInterval);
-            setDlError(p.message ?? "Unknown download error");
-          }
-        } catch {}
-      }, 1000);
-    })();
-  }, [setupChecked, licensed, setupNeeded, dlRetryCount]);
 
   // ── Data loaders ─────────────────────────────────────────────────────────────
   const loadHistory = async () => {
@@ -768,9 +632,9 @@ function App() {
     setTimeout(()=>{ setRefreshing(false); setStatus("Ready"); },600);
   };
 
-  // ── Init waveform — only runs after model is ready (waveRef exists) ────────
+  // ── Init waveform ────────────────────────────────────────────────────────────
   useEffect(()=>{
-    if (modelReady !== true || !waveRef.current) return;
+    if (!waveRef.current) return;
     const ws = WaveSurfer.create({
       container: waveRef.current,
       height: 110,
@@ -793,7 +657,7 @@ function App() {
     loadHistory();
     loadCustomVoices();
     return ()=>{ waveSurferRef.current?.destroy(); stopStepTicker(); };
-  },[modelReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[]);
 
   // ── Card play timer ──────────────────────────────────────────────────────────
   useEffect(()=>{
@@ -1100,30 +964,6 @@ function App() {
       </div>
     </div>
   );
-
-  // ── Show appropriate screen until model is ready ────────────────────────────
-  if (modelReady !== true) {
-    // Download already started (or failed) → show full download screen
-    if (dlProgress !== null || dlError) {
-      return <DownloadScreen progress={dlProgress} error={dlError} debugInfo={debugInfo}
-        onRetry={dlError ? () => { setDlError(""); setDlProgress(null); setDlRetryCount(c => c + 1); } : undefined}
-      />;
-    }
-    // Still checking disk — show a minimal splash so returning users don't see the download screen
-    return (
-      <div style={{ backgroundColor:"#070c17", minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", color:"white", WebkitFontSmoothing:"antialiased" }}>
-        <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
-        <div style={{ textAlign:"center" }}>
-          <div style={{ fontSize:"42px", fontWeight:800, letterSpacing:"-1px", marginBottom:"8px", background:"linear-gradient(135deg,#f0f4ff,#a78bfa)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>Curzon VoiceAI</div>
-          <div style={{ fontSize:"10px", color:"#3a4d66", textTransform:"uppercase", letterSpacing:"0.15em", marginBottom:"32px" }}>AI Voice Studio</div>
-          <div style={{ fontSize:"13px", color:"#3a4d66", display:"flex", alignItems:"center", justifyContent:"center", gap:"10px" }}>
-            <span style={{ display:"inline-block", animation:"spin 1.2s linear infinite" }}>⟳</span>
-            Checking OpenVoice V2 model…
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (

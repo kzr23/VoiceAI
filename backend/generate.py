@@ -229,43 +229,6 @@ elif engine_raw.startswith("f5tts|"):
         import traceback
         print(f"F5-TTS error: {_f5e}\n{traceback.format_exc()}"); sys.exit(1)
 
-# ── Route: custom cloned voice (F5-TTS) ──────────────────────────────────────
-elif engine_raw.startswith("openvoice_v2|"):
-    parts      = engine_raw.split("|")
-    voice_id   = parts[1]
-    voices_dir = parts[2] if len(parts) > 2 else os.path.join(SCRIPT_DIR, "custom_voices")
-
-    import json as _json2
-    manifest = os.path.join(voices_dir, "voices.json")
-    if not os.path.isfile(manifest):
-        print(f"Custom voices manifest not found: {manifest}"); sys.exit(1)
-    with open(manifest) as _mf2:
-        _ve2 = next((v for v in _json2.load(_mf2) if v.get("id") == voice_id), None)
-    if not _ve2:
-        print(f"Voice '{voice_id}' not found in manifest"); sys.exit(1)
-    if not _ve2.get("ref_wav"):
-        print("This voice has no reference audio. Please re-train it in the Voice Training panel.")
-        sys.exit(1)
-    _ref2 = os.path.join(voices_dir, _ve2["ref_wav"])
-    if not os.path.isfile(_ref2):
-        print(f"Reference audio not found: {_ref2}\nPlease re-train this voice."); sys.exit(1)
-    try:
-        import torch as _torch2
-        if _torch2.backends.mps.is_available():   _f5_dev2 = "mps"
-        elif _torch2.cuda.is_available():          _f5_dev2 = "cuda"
-        else:                                      _f5_dev2 = "cpu"
-        from f5_tts.api import F5TTS as _F5TTS2
-        _f5b = _F5TTS2(model="F5TTS_v1_Base", device=_f5_dev2)
-        _spd2 = 0.82 if speed == 1.0 else speed
-        _f5b.infer(ref_file=_ref2, ref_text=_ve2.get("ref_text", ""),
-                   gen_text=text, file_wave=out_path, speed=_spd2, nfe_step=16)
-        sys.stderr.write(f"[generate] F5-TTS voice={voice_id} device={_f5_dev2}\n")
-    except ImportError:
-        print("f5-tts not installed. Run: pip install f5-tts"); sys.exit(1)
-    except Exception as _f5e2:
-        import traceback
-        print(f"F5-TTS error: {_f5e2}\n{traceback.format_exc()}"); sys.exit(1)
-
 # ── Route: standard Coqui TTS (VCTK, LJSpeech, etc.) ─────────────────────────
 else:  # tts_models/...
     model_name, speaker_id = (engine_raw.split("|",1) + [None])[:2] if "|" in engine_raw else (engine_raw, None)
