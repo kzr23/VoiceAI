@@ -120,7 +120,13 @@ jobs:
 
             ---
             ### Installation
-            - **macOS**: Download `Curzon_*_universal.dmg`, open it, then **double-click `Install Curzon.command`** inside the disk image. It copies the app and removes the macOS security flag automatically.
+            - **macOS**:
+              1. Download `Curzon_*_universal.dmg`
+              2. **Right-click the DMG → Open** (do NOT double-click — macOS will block it the first time)
+              3. Click **Open** on the security prompt
+              4. Inside the disk image, **double-click `Install Curzon.command`**
+              5. If macOS asks again, right-click `Install Curzon.command` → Open → Open
+              > The install script copies the app to /Applications and removes the macOS security flag automatically.
             - **Windows**: Download `Curzon_*_x64-setup.exe` and run it
 
             On first launch, Curzon will automatically install all AI models (~2–4 GB).
