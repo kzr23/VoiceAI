@@ -37,7 +37,6 @@
       "../../backend/enhance.py": "backend/enhance.py",
       "../../backend/trim.py": "backend/trim.py",
       "../../backend/train_voice.py": "backend/train_voice.py",
-      "../../backend/download_model.py": "backend/download_model.py",
       "../../backend/download_kokoro.py": "backend/download_kokoro.py",
       "../../backend/voices.json": "backend/voices.json",
       "../../backend/requirements.txt": "backend/requirements.txt"
