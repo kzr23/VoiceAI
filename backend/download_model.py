@@ -39,7 +39,7 @@ def err(msg):
     sys.exit(1)
 
 # OpenVoice V2 files — HuggingFace myshell-ai/OpenVoice
-HF_BASE = "https://huggingface.co/myshell-ai/OpenVoice/resolve/main"
+HF_BASE = "https://huggingface.co/myshell-ai/OpenVoiceV2/resolve/main"
 MODEL_FILES = [
     ("checkpoints_v2/converter/checkpoint.pth",       350_000_000),
     ("checkpoints_v2/converter/config.json",                5_000),
