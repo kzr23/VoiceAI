@@ -129,8 +129,8 @@ jobs:
               > The install script copies the app to /Applications and removes the macOS security flag automatically.
             - **Windows**: Download `Curzon_*_x64-setup.exe` and run it
 
-            On first launch, Curzon will automatically install all AI models (~2–4 GB).
-            This takes 10–30 minutes and only happens once — no manual steps needed.
+            On first launch, Curzon will automatically install all AI models (~1–2 GB).
+            This takes 10–20 minutes and only happens once — no manual steps needed.
           releaseDraft: false
           prerelease: false
           projectPath: frontend

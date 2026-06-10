@@ -7,9 +7,10 @@
 #    2. Checks / installs FFmpeg via winget
 #    3. Creates a Python virtual environment in backend\venv\
 #    4. Installs all Python audio/TTS packages
-#    5. Downloads Kokoro ONNX voice model  (~100 MB)
-#    6. Downloads OpenVoice V2 model files (~1.8 GB)
-#    7. Downloads NLTK language data
+#    5. Downloads NLTK language data
+#    6. Downloads Piper voice models  (~50 MB)
+#    7. Downloads Kokoro ONNX voice model  (~100 MB)
+#    8. Pre-downloads F5-TTS + Whisper model weights  (~1.2 GB)
 #
 #  Run once (as regular user) before opening Curzon for the first time.
 #  Right-click → "Run with PowerShell"
@@ -61,7 +62,7 @@ Write-Host "  VoiceAI — Windows Setup" -ForegroundColor White
 Sep
 Write-Host
 Write-Host "  This will install all dependencies and voice models."
-Write-Host "  Estimated download: ~2-4 GB | Estimated time: 10-30 min"
+Write-Host "  Estimated download: ~1-2 GB | Estimated time: 10-20 min"
 Write-Host
 Sep
 Write-Host
@@ -73,7 +74,7 @@ if ($continue -eq "n" -or $continue -eq "N") { Write-Host "  Setup cancelled."; 
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-Step "1/7 · Python 3.11"
+Step "1/8 · Python 3.11"
 # ═══════════════════════════════════════════════════════════════════════════════
 $PythonExe = $null
 
@@ -141,7 +142,7 @@ if ($PythonExe -eq "py -3.11") {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-Step "2/7 · FFmpeg"
+Step "2/8 · FFmpeg"
 # ═══════════════════════════════════════════════════════════════════════════════
 $ffmpegFound = $false
 try {
@@ -164,7 +165,7 @@ if (-not $ffmpegFound) {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-Step "3/7 · Python Virtual Environment"
+Step "3/8 · Python Virtual Environment"
 # ═══════════════════════════════════════════════════════════════════════════════
 if (-not (Test-Path $VenvDir)) {
     Log "Creating virtual environment at $VenvDir ..."
@@ -191,7 +192,7 @@ Log "Upgrading pip, setuptools, wheel..."
 & $VenvPip install --quiet --upgrade pip setuptools wheel
 
 # ═══════════════════════════════════════════════════════════════════════════════
-Step "4/7 · Python Packages"
+Step "4/8 · Python Packages"
 # ═══════════════════════════════════════════════════════════════════════════════
 Log "Installing core audio packages..."
 & $VenvPip install --quiet `
@@ -227,16 +228,9 @@ Log "Installing F5-TTS..."
 & $VenvPip install --quiet "f5-tts>=0.3.0" "cached_path"
 Ok "F5-TTS installed"
 
-Log "Installing OpenVoice V2 (from GitHub)..."
-try {
-    & $VenvPip install --quiet "git+https://github.com/myshell-ai/OpenVoice.git@main#egg=myshell-openvoice"
-    Ok "OpenVoice installed"
-} catch {
-    Warn "OpenVoice install had issues — some voice styles may be unavailable"
-}
 
 # ═══════════════════════════════════════════════════════════════════════════════
-Step "5/7 · NLTK Language Data"
+Step "5/8 · NLTK Language Data"
 # ═══════════════════════════════════════════════════════════════════════════════
 Log "Downloading NLTK tokeniser data..."
 $nltkScript = @"
@@ -296,21 +290,42 @@ if ((Test-Path $KokoroOnnx) -and (Get-Item $KokoroOnnx).Length -gt 10000000) {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-Step "8/8 · OpenVoice V2 Models  (~1.8 GB)"
+Step "8/8 · F5-TTS & Whisper Model Weights  (~1.2 GB)"
 # ═══════════════════════════════════════════════════════════════════════════════
-$OvDir   = Join-Path $BackendDir "openvoice_model"
-$OvCkpt  = Join-Path $OvDir "converter\checkpoint.pth"
+Log "Pre-downloading F5-TTS model weights (avoids delay on first voice generation)..."
+$f5Script = @"
+import sys, torch
 
-if ((Test-Path $OvCkpt) -and (Get-Item $OvCkpt).Length -gt 100000000) {
-    Ok "OpenVoice V2 models already downloaded"
-} else {
-    Log "Downloading OpenVoice V2 models (~1.8 GB — please wait)..."
-    try {
-        & $VenvPython (Join-Path $BackendDir "download_model.py")
-        Ok "OpenVoice V2 models downloaded"
-    } catch {
-        Warn "OpenVoice download failed — the app will prompt you on first launch"
-    }
+# F5-TTS base model
+try:
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"[setup] Device: {device}")
+    print("[setup] Downloading F5-TTS model weights (~600 MB)...")
+    from f5_tts.api import F5TTS
+    F5TTS(model="F5TTS_v1_Base", device=device)
+    print("[setup] F5-TTS model ready")
+except Exception as e:
+    print(f"[setup] F5-TTS model download failed (non-fatal): {e}")
+    sys.exit(1)
+
+# Whisper model (used during voice training to transcribe reference audio)
+try:
+    print("[setup] Downloading Whisper model for voice transcription (~600 MB)...")
+    from transformers import pipeline
+    dtype = torch.float16 if device == "cuda" else torch.float32
+    pipeline("automatic-speech-recognition",
+             model="openai/whisper-large-v3-turbo",
+             torch_dtype=dtype,
+             device=device)
+    print("[setup] Whisper model ready")
+except Exception as e:
+    print(f"[setup] Whisper model download failed (non-fatal): {e}")
+"@
+try {
+    & $VenvPython -c $f5Script
+    Ok "F5-TTS and Whisper model weights cached"
+} catch {
+    Warn "F5-TTS model pre-download failed — models will download on first use"
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
