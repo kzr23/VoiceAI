@@ -229,308 +229,42 @@ elif engine_raw.startswith("f5tts|"):
         import traceback
         print(f"F5-TTS error: {_f5e}\n{traceback.format_exc()}"); sys.exit(1)
 
-# ── Route: custom cloned voice (XTTS-v2 primary, OpenVoice V2 legacy fallback) ─
+# ── Route: custom cloned voice (F5-TTS) ──────────────────────────────────────
 elif engine_raw.startswith("openvoice_v2|"):
-    parts = engine_raw.split("|")
-    if len(parts) < 3:
-        print("engine must be: openvoice_v2|<voice_id>|<voices_dir>")
-        sys.exit(1)
-
+    parts      = engine_raw.split("|")
     voice_id   = parts[1]
-    voices_dir = parts[2]
+    voices_dir = parts[2] if len(parts) > 2 else os.path.join(SCRIPT_DIR, "custom_voices")
 
-    import json as _json
-    voice_entry  = {}
-    ref_wav_path = None
-    emb_pth      = os.path.join(voices_dir, f"{voice_id}.pth")
-    emb_npy      = os.path.join(voices_dir, f"{voice_id}.npy")
-
+    import json as _json2
     manifest = os.path.join(voices_dir, "voices.json")
-    if os.path.isfile(manifest):
-        with open(manifest) as mf:
-            for v in _json.load(mf):
-                if v.get("id") == voice_id:
-                    voice_entry = v
-                    if v.get("ref_wav"):
-                        candidate = os.path.join(voices_dir, v["ref_wav"])
-                        if os.path.isfile(candidate):
-                            ref_wav_path = candidate
-                    if v.get("embedding"):
-                        emb_file = os.path.join(voices_dir, v["embedding"])
-                        if emb_file.endswith(".pth"): emb_pth = emb_file
-                        else:                         emb_npy = emb_file
-                    break
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # Path A: XTTS-v2 — uses the stored reference audio directly.
-    # Clones accent, pitch, rhythm, and timbre in one shot.
-    # ══════════════════════════════════════════════════════════════════════════
-    if ref_wav_path:
-        try:
-            import os as _os
-            _os.environ["COQUI_TOS_AGREED"] = "1"
-
-            import torch as _torch
-            _orig_torch_load = _torch.load
-            def _torch_load_compat(*a, **kw):
-                kw.setdefault("weights_only", False)
-                return _orig_torch_load(*a, **kw)
-            _torch.load = _torch_load_compat
-
-            ref_stats    = voice_entry.get("ref_stats", {})
-            ref_f0_mean  = ref_stats.get("f0_mean", 0.0)
-            ref_bright   = ref_stats.get("spectral_brightness", 0.0)
-
-            # ── Clean the reference audio before conditioning ─────────────────
-            # Apply noise reduction + silence stripping at generation time so
-            # even voices trained before the denoising pipeline get clean input.
-            def _clean_ref_for_xtts(ref_path):
-                try:
-                    import tempfile, numpy as _np
-                    import noisereduce as _nr
-                    from pydub import AudioSegment as _PA
-                    from pydub.silence import detect_nonsilent as _dns
-
-                    a = _PA.from_wav(ref_path).set_channels(1).set_frame_rate(22050)
-
-                    # Noise reduction
-                    raw = _np.array(a.get_array_of_samples()).astype(_np.float32) / 32768.0
-                    denoised = _nr.reduce_noise(y=raw, sr=22050,
-                                                stationary=False, prop_decrease=0.75)
-                    rms_b = _np.sqrt(_np.mean(raw**2))
-                    rms_a = _np.sqrt(_np.mean(denoised**2))
-                    if rms_a > 1e-6:
-                        denoised = denoised * (rms_b / rms_a)
-                    denoised = _np.clip(denoised, -1.0, 1.0)
-                    pcm = (denoised * 32768).astype(_np.int16)
-                    a = _PA(pcm.tobytes(), frame_rate=22050, sample_width=2, channels=1)
-
-                    # Strip silence — concatenate speech only with 120ms gaps
-                    chunks = _dns(a, min_silence_len=300, silence_thresh=-40)
-                    parts  = [a[s:e] for s, e in chunks if (e - s) >= 800]
-                    if len(parts) >= 2:
-                        gap   = _PA.silent(duration=120, frame_rate=22050)
-                        clean = parts[0]
-                        for p in parts[1:]:
-                            clean = clean + gap + p
-                        a = clean
-
-                    # Re-normalize
-                    delta = -20.0 - a.dBFS
-                    if abs(delta) < 30:
-                        a = a.apply_gain(delta)
-
-                    tmp = tempfile.mkdtemp()
-                    clean_path = os.path.join(tmp, "ref_clean.wav")
-                    a.export(clean_path, format="wav")
-                    sys.stderr.write(
-                        f"[generate] Ref cleaned: {len(a)/1000:.1f}s "
-                        f"({len(parts)} segments, noise reduced)\n"
-                    )
-                    return clean_path, tmp
-                except Exception as _ce:
-                    sys.stderr.write(f"[generate] Ref cleaning skipped: {_ce}\n")
-                    return ref_path, None
-
-            clean_ref_path, _tmp_clean_dir = _clean_ref_for_xtts(ref_wav_path)
-            sys.stderr.write(f"[generate] XTTS-v2: ref F0={ref_f0_mean:.1f} Hz\n")
-            sys.stderr.flush()
-
-            from TTS.api import TTS
-            tts_model = TTS(
-                model_name="tts_models/multilingual/multi-dataset/xtts_v2",
-                progress_bar=False,
-                gpu=False,
-            )
-            tts_model.tts_to_file(
-                text=text,
-                speaker_wav=clean_ref_path,
-                language="en",
-                file_path=out_path,
-                speed=speed,
-                temperature=0.65,            # Coqui's quality-optimised default
-                repetition_penalty=10.0,
-                top_k=50,
-                top_p=0.85,
-                enable_text_splitting=True,  # generate sentence-by-sentence → clear pronunciation
-            )
-
-            # Cleanup
-            if _tmp_clean_dir:
-                import shutil
-                try: shutil.rmtree(_tmp_clean_dir)
-                except Exception: pass
-
-            _torch.load = _orig_torch_load
-
-            # Auto pitch correction — XTTS-v2 often generates slightly lower
-            # than the reference. Measure the delta and correct it (≤3 st safe zone).
-            if ref_f0_mean > 60:
-                try:
-                    import librosa as _lib, numpy as _np
-                    y_g, sr_g = _lib.load(out_path, sr=None)
-                    f0_g, v_g, _ = _lib.pyin(y_g, fmin=60, fmax=500, sr=sr_g, frame_length=2048)
-                    f0_voiced = f0_g[v_g & ~_np.isnan(f0_g)]
-                    if len(f0_voiced) > 10:
-                        gen_f0  = float(_np.mean(f0_voiced))
-                        st_raw  = float(12 * _np.log2(ref_f0_mean / gen_f0))
-                        st_safe = max(-3.0, min(3.0, st_raw))
-                        if abs(st_safe) > 0.25:
-                            pitch_shift_wav(out_path, st_safe)
-                            sys.stderr.write(
-                                f"[generate] Pitch corrected: {gen_f0:.1f}→"
-                                f"{ref_f0_mean:.1f} Hz ({st_safe:+.2f} st)\n"
-                            )
-                except Exception as _pe:
-                    sys.stderr.write(f"[generate] Pitch correction skipped: {_pe}\n")
-
-            # Spectral brightness matching — resample both to a common rate (22050)
-            # before comparing centroids, then apply a high-shelf boost/cut.
-            if ref_bright > 500:
-                try:
-                    import librosa as _lib, numpy as _np, soundfile as _sf
-                    from scipy.signal import sosfilt
-                    # Load generated at 22050 so comparison is on the same scale
-                    y_g22, _ = _lib.load(out_path, sr=22050)
-                    freqs22  = _np.fft.rfftfreq(len(y_g22), 1.0 / 22050)
-                    mag22    = _np.abs(_np.fft.rfft(y_g22)) + 1e-12
-                    gen_bright22 = float(_np.sum(freqs22 * mag22) / _np.sum(mag22))
-                    delta_hz = ref_bright - gen_bright22
-                    # Only apply if gap > 80 Hz; limit to ±4 dB shelf gain
-                    if abs(delta_hz) > 80:
-                        shelf_gain_db = max(-4.0, min(4.0, delta_hz / 120.0))
-                        # Apply EQ on the native-rate file to avoid re-sample quality loss
-                        y_g, sr_g = _lib.load(out_path, sr=None)
-                        shelf_hz = 3000.0
-                        A  = 10 ** (shelf_gain_db / 40.0)
-                        w0 = 2 * _np.pi * shelf_hz / sr_g
-                        alpha = _np.sin(w0) / 2 * _np.sqrt(2)
-                        b0 =      A*((A+1) + (A-1)*_np.cos(w0) + 2*_np.sqrt(A)*alpha)
-                        b1 = -2*A*((A-1) + (A+1)*_np.cos(w0))
-                        b2 =      A*((A+1) + (A-1)*_np.cos(w0) - 2*_np.sqrt(A)*alpha)
-                        a0 =         (A+1) - (A-1)*_np.cos(w0) + 2*_np.sqrt(A)*alpha
-                        a1 =    2*( (A-1) - (A+1)*_np.cos(w0))
-                        a2 =         (A+1) - (A-1)*_np.cos(w0) - 2*_np.sqrt(A)*alpha
-                        sos = _np.array([[b0/a0, b1/a0, b2/a0, 1.0, a1/a0, a2/a0]])
-                        y_eq = sosfilt(sos, y_g)
-                        peak = _np.max(_np.abs(y_eq))
-                        if peak > 0: y_eq = y_eq / peak * _np.max(_np.abs(y_g))
-                        _sf.write(out_path, y_eq.astype(_np.float32), sr_g)
-                        sys.stderr.write(
-                            f"[generate] Brightness EQ: {gen_bright22:.0f}→"
-                            f"~{ref_bright:.0f} Hz ({shelf_gain_db:+.1f} dB shelf)\n"
-                        )
-                except Exception as _be:
-                    sys.stderr.write(f"[generate] Brightness EQ skipped: {_be}\n")
-
-            sys.stderr.write(f"[generate] Saved: {out_path}\n")
-
-        except Exception as e:
-            import traceback
-            print(f"XTTS-v2 generation error: {e}\n{traceback.format_exc()}")
-            sys.exit(1)
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # Path B: OpenVoice V2 legacy — for voices trained before XTTS-v2 switch.
-    # Uses the stored .pth embedding with F0-matched VCTK base speaker.
-    # No pitch shift (avoids echo artifacts).
-    # ══════════════════════════════════════════════════════════════════════════
-    else:
-        ref_stats    = voice_entry.get("ref_stats", {})
-        voice_gender = voice_entry.get("gender", "Male")
-
-        VCTK_F0_TABLE = [
-            ("p264", 93.6),
-            ("p232", 101.1), ("p228", 102.2), ("p229", 102.7), ("p266", 102.3),
-            ("p238", 107.6), ("p234", 111.9), ("p340", 114.5),
-            ("p226", 120.8), ("p236", 120.5), ("p233", 126.4),
-            ("p239", 136.9),
-            ("p362", 169.3), ("p333", 171.1),
-            ("p336", 188.7), ("p237", 189.7),
-            ("p303", 193.1), ("p294", 197.9),
-            ("p250", 209.7), ("p361", 208.8),
-            ("p259", 222.2), ("p248", 252.7),
-        ]
-
-        ref_f0 = ref_stats.get("f0_mean", 0.0)
-        base_speaker = (
-            min(VCTK_F0_TABLE, key=lambda x: abs(x[1] - ref_f0))[0]
-            if ref_f0 > 60
-            else ("p226" if voice_gender == "Male" else "p267")
-        )
-        base_f0_exp = next((f for s, f in VCTK_F0_TABLE if s == base_speaker), 120.0)
-
-        ref_syl_rate = ref_stats.get("syllable_rate", 0.0)
-        tts_speed = (
-            max(0.7, min(2.0, (ref_syl_rate / 3.8) * speed))
-            if ref_syl_rate > 2.0
-            else speed
-        )
-
-        sys.stderr.write(
-            f"[generate] OpenVoice V2 legacy: VCTK {base_speaker} "
-            f"(~{base_f0_exp:.0f} Hz, ref={ref_f0:.0f} Hz), speed={tts_speed:.2f}\n"
-        )
-        sys.stderr.flush()
-
-        try:
-            import torch
-
-            CKPT_DIR = os.path.join(SCRIPT_DIR, "openvoice_model")
-            if not os.path.isdir(CKPT_DIR) or \
-               not os.path.isfile(os.path.join(CKPT_DIR, "converter", "checkpoint.pth")):
-                print(f"OpenVoice V2 model not found at: {CKPT_DIR}\nDownload it from the app first.")
-                sys.exit(1)
-
-            ov_src = os.path.join(SCRIPT_DIR, "openvoice_model", "OpenVoice")
-            if os.path.isdir(ov_src) and ov_src not in sys.path:
-                sys.path.insert(0, ov_src)
-
-            base_path = out_path.replace(".wav", "_base.wav")
-            from TTS.api import TTS
-            try:
-                tts_model = TTS(model_name="tts_models/en/vctk/vits", progress_bar=False, gpu=False)
-                tts_model.tts_to_file(text=text, file_path=base_path,
-                                      speaker=base_speaker, speed=tts_speed)
-            except Exception:
-                tts_model = TTS(model_name="tts_models/en/ljspeech/tacotron2-DDC",
-                                progress_bar=False, gpu=False)
-                tts_model.tts_to_file(text=text, file_path=base_path, speed=tts_speed)
-
-            from openvoice.api import ToneColorConverter
-            conv_ckpt = os.path.join(CKPT_DIR, "converter")
-            conv = ToneColorConverter(
-                os.path.join(conv_ckpt, "config.json"), device="cpu", enable_watermark=False
-            )
-            conv.load_ckpt(os.path.join(conv_ckpt, "checkpoint.pth"))
-
-            src_se = conv.extract_se([base_path], se_save_path=None)
-
-            if os.path.isfile(emb_pth):
-                target_se = torch.load(emb_pth, map_location="cpu", weights_only=True)
-            elif os.path.isfile(emb_npy):
-                print("This voice was trained with an older encoder (YourTTS).\n"
-                      "Please re-train it in the Voice Training panel.")
-                sys.exit(1)
-            else:
-                print(f"No embedding found for voice '{voice_id}' in {voices_dir}")
-                sys.exit(1)
-
-            conv.convert(audio_src_path=base_path, src_se=src_se, tgt_se=target_se,
-                         output_path=out_path, tau=0.1)
-
-            if os.path.isfile(base_path):
-                os.remove(base_path)
-
-            sys.stderr.write(f"[generate] Saved: {out_path}\n")
-
-        except ImportError as ie:
-            print(f"Missing dependency: {ie}")
-            sys.exit(1)
-        except Exception as e:
-            import traceback
-            print(f"OpenVoice V2 generation error: {e}\n{traceback.format_exc()}")
-            sys.exit(1)
+    if not os.path.isfile(manifest):
+        print(f"Custom voices manifest not found: {manifest}"); sys.exit(1)
+    with open(manifest) as _mf2:
+        _ve2 = next((v for v in _json2.load(_mf2) if v.get("id") == voice_id), None)
+    if not _ve2:
+        print(f"Voice '{voice_id}' not found in manifest"); sys.exit(1)
+    if not _ve2.get("ref_wav"):
+        print("This voice has no reference audio. Please re-train it in the Voice Training panel.")
+        sys.exit(1)
+    _ref2 = os.path.join(voices_dir, _ve2["ref_wav"])
+    if not os.path.isfile(_ref2):
+        print(f"Reference audio not found: {_ref2}\nPlease re-train this voice."); sys.exit(1)
+    try:
+        import torch as _torch2
+        if _torch2.backends.mps.is_available():   _f5_dev2 = "mps"
+        elif _torch2.cuda.is_available():          _f5_dev2 = "cuda"
+        else:                                      _f5_dev2 = "cpu"
+        from f5_tts.api import F5TTS as _F5TTS2
+        _f5b = _F5TTS2(model="F5TTS_v1_Base", device=_f5_dev2)
+        _spd2 = 0.82 if speed == 1.0 else speed
+        _f5b.infer(ref_file=_ref2, ref_text=_ve2.get("ref_text", ""),
+                   gen_text=text, file_wave=out_path, speed=_spd2, nfe_step=16)
+        sys.stderr.write(f"[generate] F5-TTS voice={voice_id} device={_f5_dev2}\n")
+    except ImportError:
+        print("f5-tts not installed. Run: pip install f5-tts"); sys.exit(1)
+    except Exception as _f5e2:
+        import traceback
+        print(f"F5-TTS error: {_f5e2}\n{traceback.format_exc()}"); sys.exit(1)
 
 # ── Route: standard Coqui TTS (VCTK, LJSpeech, etc.) ─────────────────────────
 else:  # tts_models/...
