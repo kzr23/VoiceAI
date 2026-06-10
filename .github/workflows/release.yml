@@ -130,7 +130,7 @@ jobs:
       - name: Inject install script into macOS DMG
         if: matrix.platform == 'macos-latest'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
           DMG=$(find frontend/src-tauri/target -name "*.dmg" | head -1)
