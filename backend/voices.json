@@ -1,0 +1,20 @@
+[
+  {
+    "id": "lessac",
+    "name": "Lessac",
+    "gender": "Female",
+    "country": "US"
+  },
+  {
+    "id": "ryan",
+    "name": "Ryan",
+    "gender": "Male",
+    "country": "US"
+  },
+  {
+    "id": "alan",
+    "name": "Alan",
+    "gender": "Male",
+    "country": "UK"
+  }
+]

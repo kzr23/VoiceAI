@@ -1,0 +1,30 @@
+# ── Core audio processing ─────────────────────────────────────────────────────
+numpy>=2.0.0
+scipy>=1.11.0
+librosa>=0.10.2
+soundfile>=0.12.1
+pydub>=0.25.1
+noisereduce>=3.0.2
+pedalboard>=0.9.0
+
+# ── NLP ───────────────────────────────────────────────────────────────────────
+nltk>=3.8.1
+
+# ── Networking / utilities ────────────────────────────────────────────────────
+requests>=2.31.0
+tqdm>=4.66.0
+
+# ── ONNX inference (Kokoro, Piper) ────────────────────────────────────────────
+onnxruntime>=1.18.0
+
+# ── TTS engines ───────────────────────────────────────────────────────────────
+kokoro-onnx>=0.4.0
+piper-tts>=1.2.0
+
+# NOTE: The following packages are installed separately in setup.sh / setup.ps1
+# because they require special flags or platform-specific index URLs:
+#
+#   torch / torchaudio  — platform-specific wheel (CPU vs MPS vs CUDA)
+#   TTS (Coqui)         — requires COQUI_TOS_AGREED=1
+#   f5-tts              — depends on torch being installed first
+#   openvoice           — installed from GitHub (not on PyPI)

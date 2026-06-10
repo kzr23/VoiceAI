@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "VoiceAIpro",
-  "version": "0.1.0",
-  "identifier": "com.tauri.dev",
+  "productName": "Curzon",
+  "version": "1.0.0",
+  "identifier": "com.curzon.voiceai",
   "build": {
     "frontendDist": "dist",
     "devUrl": "http://localhost:5173",
@@ -12,11 +12,15 @@
   "app": {
     "windows": [
       {
-        "title": "VoiceAIPro",
-        "width": 800,
-        "height": 600,
+        "title": "Curzon",
+        "width": 1280,
+        "height": 860,
+        "minWidth": 960,
+        "minHeight": 640,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "decorations": true,
+        "center": true
       }
     ],
     "security": {
@@ -35,6 +39,15 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "REPLACE_WITH_YOUR_TAURI_PUBLIC_KEY",
+      "endpoints": [
+        "https://github.com/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME/releases/latest/download/latest.json"
+      ],
+      "dialog": false
     }
   }
 }

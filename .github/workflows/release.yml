@@ -1,0 +1,125 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Curzon VoiceAI — Automated Release Workflow
+#
+#  Triggers when you push a version tag (e.g. v1.0.1).
+#
+#  Produces:
+#    macOS  → Curzon_1.0.1_universal.dmg  (Intel + Apple Silicon)
+#    Windows → Curzon_1.0.1_x64-setup.exe (NSIS installer)
+#             Curzon_1.0.1_x64_en-US.msi  (MSI installer)
+#    latest.json  → updater manifest consumed by the in-app updater
+#
+#  Required GitHub Secrets (Settings → Secrets → Actions):
+#    TAURI_SIGNING_PRIVATE_KEY          ← from: tauri signer generate -w ~/curzon.key
+#    TAURI_SIGNING_PRIVATE_KEY_PASSWORD ← the password you chose (leave blank if none)
+#
+#  One-time setup (run locally once):
+#    npm install -g @tauri-apps/cli
+#    tauri signer generate -w ~/curzon.key
+#    # Copy the public key printed to stdout → paste into tauri.conf.json "pubkey"
+#    # Add the private key file content     → add as TAURI_SIGNING_PRIVATE_KEY secret
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:   # Allow manual trigger from the Actions tab
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── macOS universal (Intel + Apple Silicon) ──────────────────────────
+          - platform: macos-latest
+            args: --target universal-apple-darwin
+            rust-targets: aarch64-apple-darwin x86_64-apple-darwin
+
+          # ── Windows x64 ─────────────────────────────────────────────────────
+          - platform: windows-latest
+            args: --target x86_64-pc-windows-msvc
+            rust-targets: x86_64-pc-windows-msvc
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      # ── Checkout ─────────────────────────────────────────────────────────────
+      - uses: actions/checkout@v4
+
+      # ── Node.js ──────────────────────────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # ── Rust ─────────────────────────────────────────────────────────────────
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: frontend/src-tauri -> target
+
+      # ── macOS deps ───────────────────────────────────────────────────────────
+      - name: Install macOS dependencies
+        if: matrix.platform == 'macos-latest'
+        run: |
+          # Xcode Command Line Tools are pre-installed on GitHub runners
+          echo "macOS runner ready"
+
+      # ── Windows deps ─────────────────────────────────────────────────────────
+      - name: Install Windows dependencies
+        if: matrix.platform == 'windows-latest'
+        run: |
+          # NSIS (for .exe installer) and WebView2 are pre-installed on GitHub runners
+          echo "Windows runner ready"
+
+      # ── Frontend deps ────────────────────────────────────────────────────────
+      - name: Install npm dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # ── Build & publish ──────────────────────────────────────────────────────
+      - name: Build and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS code signing (optional — remove if you don't have an Apple Developer account)
+          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Curzon v__VERSION__'
+          releaseBody: |
+            ## What's new in this release
+
+            See the full changelog for details.
+
+            ---
+            ### Installation
+            - **macOS**: Download `Curzon_*_universal.dmg`, open it, drag Curzon to Applications
+            - **Windows**: Download `Curzon_*_x64-setup.exe` and run it
+
+            After installing, run the setup script once to ensure all models are up to date:
+            - macOS: `bash setup.sh`
+            - Windows: double-click `setup.bat`
+          releaseDraft: false
+          prerelease: false
+          projectPath: frontend
+          updaterJsonKeepUniversal: true
+          args: ${{ matrix.args }}

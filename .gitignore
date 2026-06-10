@@ -1,0 +1,48 @@
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.Python
+backend/venv/
+
+# ── Runtime / temp files ──────────────────────────────────────────────────────
+backend/input.txt
+backend/output.wav
+backend/download_progress.json
+backend/download_stderr.log
+
+# ── Generated audio (user data — not source code) ─────────────────────────────
+backend/history/
+
+# ── User-trained voices ────────────────────────────────────────────────────────
+backend/custom_voices/
+
+# ── Large model files (downloaded by setup script, not stored in git) ─────────
+backend/models/
+backend/openvoice_model/
+
+# ── Node / frontend build ─────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+
+# ── Rust / Tauri build output ─────────────────────────────────────────────────
+frontend/src-tauri/target/
+frontend/src-tauri/input.txt
+
+# ── Stale / junk files ────────────────────────────────────────────────────────
+frontend/src/App.backup.tsx
+frontend/src-tauri/src/lib.rs?
+
+# ── Editor / IDE ──────────────────────────────────────────────────────────────
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
