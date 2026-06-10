@@ -91,6 +91,11 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      # ── Give Windows a head-start so it creates the release first ─────────────
+      - name: Wait for release to be created (macOS only)
+        if: matrix.platform == 'macos-latest'
+        run: sleep 60
+
       # ── Build & publish ──────────────────────────────────────────────────────
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v0
