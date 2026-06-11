@@ -49,9 +49,27 @@ if SCRIPT_DIR not in sys.path:
 from audio_post import apply_post
 
 
+# Mirror diagnostics to a log file so timing / fp16 status is inspectable even
+# when the app is launched from Finder (where stderr goes nowhere visible).
+try:
+    _logfile = open(os.path.join(SCRIPT_DIR, "f5_worker.log"), "a", buffering=1)
+except Exception:
+    _logfile = None
+
+
 def log(msg):
-    sys.stderr.write(f"[f5_worker] {msg}\n")
+    line = f"[f5_worker] {msg}\n"
+    sys.stderr.write(line)
     sys.stderr.flush()
+    if _logfile is not None:
+        try:
+            _logfile.write(time.strftime("%H:%M:%S ") + line)
+        except Exception:
+            pass
+
+
+# Set to True permanently if fp16 inference ever fails or yields invalid audio.
+_fp16_disabled = False
 
 
 def emit(obj):
@@ -125,12 +143,51 @@ def handle(req):
     # Apply the same correction generate.py used when the slider is untouched.
     f5_speed = 0.82 if speed == 1.0 else speed
 
+    # Quality-first speed-up: run inference under mixed precision (fp16) on
+    # MPS/CUDA. autocast keeps weights in fp32 and only casts safe ops, so there
+    # are no dtype-mismatch crashes and quality is essentially unchanged. If the
+    # autocast path errors OR yields invalid audio (NaN / near-silence), we
+    # permanently fall back to plain fp32 — so worst case equals the old path.
+    def _run(use_autocast):
+        kwargs = dict(
+            ref_file=ref_wav, ref_text=ref_text, gen_text=text,
+            file_wave=out_path, speed=f5_speed, nfe_step=16,
+            show_info=lambda *a, **k: None,   # keep F5's prints off stdout
+        )
+        if use_autocast:
+            with torch.autocast(device_type=DEVICE, dtype=torch.float16):
+                return F5.infer(**kwargs)
+        return F5.infer(**kwargs)
+
+    def _invalid(result):
+        try:
+            w = result[0]
+            if hasattr(w, "detach"):
+                w = w.detach().cpu().numpy()
+            import numpy as _np
+            return bool(_np.isnan(w).any()) or float(_np.max(_np.abs(w))) < 1e-4
+        except Exception:
+            return False  # can't tell → assume fine
+
+    global _fp16_disabled
+    use_fp16 = (DEVICE in ("mps", "cuda")) and not _fp16_disabled
+
     t0 = time.time()
-    F5.infer(
-        ref_file=ref_wav, ref_text=ref_text, gen_text=text,
-        file_wave=out_path, speed=f5_speed, nfe_step=16,
-    )
-    log(f"Inference voice={voice_id} speed={f5_speed} took {time.time()-t0:.1f}s")
+    if use_fp16:
+        try:
+            result = _run(use_autocast=True)
+            if _invalid(result):
+                raise ValueError("fp16 produced invalid audio (NaN/silence)")
+            log(f"Inference voice={voice_id} speed={f5_speed} fp16=on took {time.time()-t0:.1f}s")
+        except Exception as fe:
+            log(f"fp16 path failed ({fe}); permanently falling back to fp32")
+            _fp16_disabled = True
+            t0 = time.time()
+            _run(use_autocast=False)
+            log(f"Inference voice={voice_id} speed={f5_speed} fp16=off took {time.time()-t0:.1f}s")
+    else:
+        _run(use_autocast=False)
+        log(f"Inference voice={voice_id} speed={f5_speed} fp16=off took {time.time()-t0:.1f}s")
 
     apply_post(out_path, pitch_st=pitch_st, volume_pct=volume_pct,
                trim_silence=trim_silence, mastering=mastering)
