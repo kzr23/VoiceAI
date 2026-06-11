@@ -213,10 +213,32 @@ Log "Installing Piper TTS..."
 & $VenvPip install --quiet "piper-tts>=1.2.0"
 Ok "Piper TTS installed"
 
-Log "Installing PyTorch CPU (~600 MB)..."
-& $VenvPip install --quiet torch torchaudio `
-    --index-url https://download.pytorch.org/whl/cpu
-Ok "PyTorch installed"
+# Install GPU (CUDA) PyTorch when an NVIDIA card is present so F5-TTS runs on the
+# GPU with fp16 — the worker auto-uses device="cuda" and the fp16 path with no
+# code change. Falls back to CPU-only torch otherwise. If a GPU is present but
+# the driver is missing/old, torch.cuda.is_available() is False at runtime and
+# the worker quietly uses CPU, so this is safe either way.
+$HasNvidia = $false
+try {
+    if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+        $HasNvidia = $true
+    } elseif (Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -match "NVIDIA" }) {
+        $HasNvidia = $true
+    }
+} catch { }
+
+if ($HasNvidia) {
+    Log "NVIDIA GPU detected — installing CUDA PyTorch (~2.5 GB, big speed-up)..."
+    & $VenvPip install --quiet torch torchaudio `
+        --index-url https://download.pytorch.org/whl/cu121
+    Ok "PyTorch (CUDA) installed"
+} else {
+    Log "No NVIDIA GPU — installing CPU PyTorch (~600 MB)..."
+    & $VenvPip install --quiet torch torchaudio `
+        --index-url https://download.pytorch.org/whl/cpu
+    Ok "PyTorch (CPU) installed"
+}
 
 Log "Installing Coqui TTS..."
 $env:COQUI_TOS_AGREED = "1"
