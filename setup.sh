@@ -158,7 +158,7 @@ log "Upgrading pip, setuptools, wheel..."
 
 log "Installing core audio packages..."
 "$VPIP" install --quiet \
-    "numpy>=2.0.0" "scipy>=1.11.0" "librosa>=0.10.2" "soundfile>=0.12.1" \
+    "numpy>=1.26.0,<2.0" "scipy>=1.11.0" "librosa>=0.10.2" "soundfile>=0.12.1" \
     "pydub>=0.25.1" "noisereduce>=3.0.2" "pedalboard>=0.9.0" \
     "nltk>=3.8.1" "requests>=2.31.0" "tqdm>=4.66.0"
 ok "Core audio packages installed"
@@ -188,7 +188,6 @@ ok "PyTorch installed"
 
 log "Installing Coqui TTS (~200 MB including models)..."
 COQUI_TOS_AGREED=1 "$VPIP" install --quiet "TTS>=0.22.0"
-"$VPIP" install --quiet "numpy>=2.0.2" --upgrade  # re-pin numpy after Coqui may downgrade it
 ok "Coqui TTS installed"
 
 log "Installing F5-TTS (zero-shot voice cloning)..."

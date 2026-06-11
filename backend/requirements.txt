@@ -1,5 +1,5 @@
 # ── Core audio processing ─────────────────────────────────────────────────────
-numpy>=2.0.0
+numpy>=1.26.0,<2.0
 scipy>=1.11.0
 librosa>=0.10.2
 soundfile>=0.12.1

@@ -196,7 +196,7 @@ Step "4/8 · Python Packages"
 # ═══════════════════════════════════════════════════════════════════════════════
 Log "Installing core audio packages..."
 & $VenvPip install --quiet `
-    "numpy>=2.0.0" "scipy>=1.11.0" "librosa>=0.10.2" "soundfile>=0.12.1" `
+    "numpy>=1.26.0,<2.0" "scipy>=1.11.0" "librosa>=0.10.2" "soundfile>=0.12.1" `
     "pydub>=0.25.1" "noisereduce>=3.0.2" "pedalboard>=0.9.0" `
     "nltk>=3.8.1" "requests>=2.31.0" "tqdm>=4.66.0"
 Ok "Core audio packages installed"
@@ -221,7 +221,6 @@ Ok "PyTorch installed"
 Log "Installing Coqui TTS..."
 $env:COQUI_TOS_AGREED = "1"
 & $VenvPip install --quiet "TTS>=0.22.0"
-& $VenvPip install --quiet "numpy>=2.0.2" --upgrade  # re-pin numpy after Coqui may downgrade it
 Ok "Coqui TTS installed"
 
 Log "Installing F5-TTS..."
