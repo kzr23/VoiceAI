@@ -194,8 +194,16 @@ struct F5WorkerState(Mutex<Option<F5Worker>>);
 /// Spawn the worker and block until it reports `{"status":"ready"}` (model loaded).
 fn spawn_f5_worker() -> Result<F5Worker, String> {
     let py = python_exe();
+    let script = format!("{}/f5_worker.py", backend_dir());
+    if !std::path::Path::new(&script).exists() {
+        return Err(format!(
+            "F5 worker script is missing ({}). This usually means an interrupted \
+             update — please relaunch Curzon, or reinstall to repair the backend.",
+            script
+        ));
+    }
     let mut child = Command::new(&py)
-        .arg(format!("{}/f5_worker.py", backend_dir()))
+        .arg(&script)
         .env("PATH", augmented_path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -856,9 +864,48 @@ fn run_setup(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Keep the installed backend's Python scripts in sync with the bundled app.
+///
+/// Setup only runs on first install, so upgrading the app would otherwise leave
+/// stale `*.py` (e.g. a new f5_worker.py would never be copied). These scripts
+/// are tiny, so we refresh them from the bundle on every launch. Heavyweight
+/// assets (venv, models) are untouched — only code is synced.
+fn sync_backend_scripts(app: &tauri::AppHandle) {
+    let resource_dir = match app.path().resource_dir() {
+        Ok(d) => d,
+        Err(_) => return,
+    };
+    let src = resource_dir.join("backend");
+    if !src.exists() {
+        return;
+    }
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default();
+    let dst = std::path::PathBuf::from(&home)
+        .join("Documents").join("Curzon").join("backend");
+    // Only sync into an already-installed backend; fresh installs are handled
+    // by setup.sh / setup.ps1.
+    if !dst.exists() {
+        return;
+    }
+    if let Ok(entries) = std::fs::read_dir(&src) {
+        for e in entries.flatten() {
+            let name = e.file_name();
+            if name.to_string_lossy().ends_with(".py") {
+                let _ = std::fs::copy(e.path(), dst.join(&name));
+            }
+        }
+    }
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
         .manage(F5WorkerState::default())
+        .setup(|app| {
+            sync_backend_scripts(app.handle());
+            Ok(())
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
