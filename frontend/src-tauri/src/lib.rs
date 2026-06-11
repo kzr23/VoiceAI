@@ -254,33 +254,48 @@ fn f5_generate(state: &Mutex<Option<F5Worker>>, request: &str) -> Result<String,
             return Err("F5 worker write failed".to_string());
         }
 
-        // Read the response line.
-        let mut line = String::new();
-        match worker.reader.read_line(&mut line) {
-            Ok(0) => {
-                let _ = guard.take().map(|mut w| w.child.kill());
-                if attempt == 0 { continue; }
-                return Err("F5 worker closed unexpectedly".to_string());
+        // Read until we get a parseable JSON protocol line. Any stray
+        // library output (tqdm, "Converting audio...", etc.) that leaks onto
+        // stdout is skipped rather than treated as the response.
+        let mut dead = false;
+        let mut result: Option<Result<String, String>> = None;
+        loop {
+            let mut line = String::new();
+            match worker.reader.read_line(&mut line) {
+                Ok(0) => { dead = true; break; }
+                Err(_) => { dead = true; break; }
+                Ok(_) => {}
             }
-            Err(e) => {
-                let _ = guard.take().map(|mut w| w.child.kill());
-                if attempt == 0 { continue; }
-                return Err(format!("F5 worker read error: {}", e));
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
             }
-            Ok(_) => {}
+            let v: serde_json::Value = match serde_json::from_str(trimmed) {
+                Ok(v) => v,
+                Err(_) => continue, // not protocol — ignore stray stdout noise
+            };
+            match v.get("status").and_then(|s| s.as_str()) {
+                Some("ok") => {
+                    result = Some(Ok(v.get("file").and_then(|f| f.as_str()).unwrap_or("").to_string()));
+                    break;
+                }
+                Some("error") => {
+                    result = Some(Err(v.get("message").and_then(|m| m.as_str())
+                        .unwrap_or("unknown F5 error").to_string()));
+                    break;
+                }
+                _ => continue, // e.g. a stray status we don't recognise
+            }
         }
 
-        let v: serde_json::Value = serde_json::from_str(line.trim())
-            .map_err(|e| format!("Bad F5 worker response '{}': {}", line.trim(), e))?;
-        return match v.get("status").and_then(|s| s.as_str()) {
-            Some("ok") => Ok(v.get("file").and_then(|f| f.as_str()).unwrap_or("").to_string()),
-            Some("error") => Err(v
-                .get("message")
-                .and_then(|m| m.as_str())
-                .unwrap_or("unknown F5 error")
-                .to_string()),
-            other => Err(format!("Unexpected F5 worker status: {:?}", other)),
-        };
+        if dead {
+            let _ = guard.take().map(|mut w| w.child.kill());
+            if attempt == 0 { continue; }
+            return Err("F5 worker closed unexpectedly".to_string());
+        }
+        if let Some(r) = result {
+            return r;
+        }
     }
     Err("F5 worker unavailable".to_string())
 }

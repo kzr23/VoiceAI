@@ -28,6 +28,17 @@ warnings.filterwarnings("ignore")
 # it here so subprocesses start clean.
 os.environ.pop("PYTHONHASHSEED", None)
 
+# ── Protocol channel isolation ────────────────────────────────────────────────
+# F5-TTS and its dependencies (torch, tqdm, pydub) print progress such as
+# "Converting audio..." to stdout. The parent reads stdout as a strict
+# line-delimited JSON protocol, so any stray print corrupts a response.
+# Duplicate the real stdout onto a private fd used ONLY for protocol messages,
+# then point fd 1 (and Python's sys.stdout) at stderr so every library print is
+# harmless noise on stderr instead of protocol corruption.
+_protocol = os.fdopen(os.dup(1), "w", buffering=1)
+os.dup2(2, 1)
+sys.stdout = sys.stderr
+
 SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
 HISTORY_DIR = os.path.join(SCRIPT_DIR, "history")
 os.makedirs(HISTORY_DIR, exist_ok=True)
@@ -44,9 +55,9 @@ def log(msg):
 
 
 def emit(obj):
-    """Write a single protocol line to stdout."""
-    sys.stdout.write(json.dumps(obj) + "\n")
-    sys.stdout.flush()
+    """Write a single protocol line to the private protocol channel."""
+    _protocol.write(json.dumps(obj) + "\n")
+    _protocol.flush()
 
 
 # ── Load model once ───────────────────────────────────────────────────────────
