@@ -120,13 +120,20 @@ jobs:
 
             ---
             ### Installation
-            - **macOS**:
+            - **macOS (recommended — one line, no security warnings):**
+              Open **Terminal** and paste:
+              ```
+              curl -fsSL https://raw.githubusercontent.com/kzr23/VoiceAI/main/scripts/install.sh | bash
+              ```
+              This downloads and installs Curzon to /Applications and launches it. Because the download
+              happens via `curl` (not a browser), macOS does **not** quarantine it — so there is no
+              "unidentified developer" block, no right-click dance, and no manual `xattr`.
+
+              **Manual alternative (if you prefer the DMG):**
               1. Download `Curzon_*_universal.dmg`
-              2. **Right-click the DMG → Open** (do NOT double-click — macOS will block it the first time)
-              3. Click **Open** on the security prompt
-              4. Inside the disk image, **double-click `Install Curzon.command`**
-              5. If macOS asks again, right-click `Install Curzon.command` → Open → Open
-              > The install script copies the app to /Applications and removes the macOS security flag automatically.
+              2. Double-click the DMG, then drag **Curzon** to **Applications**
+              3. If macOS blocks the first launch: open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**
+              > Or in Terminal: `xattr -cr /Applications/Curzon.app && open /Applications/Curzon.app`
             - **Windows**: Download `Curzon_*_x64-setup.exe` and run it
 
             On first launch, Curzon will automatically install all AI models (~1–2 GB).

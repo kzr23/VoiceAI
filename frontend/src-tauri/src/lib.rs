@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::{BufRead, Read};
-use std::process::{Command, Stdio};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 use tauri::{Emitter, Manager};
 
@@ -173,26 +174,143 @@ fn debug_paths() -> String {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// F5-TTS PERSISTENT WORKER
+//
+// Loading the ~1.2 GB F5-TTS model takes 10-15 s. Instead of paying that on
+// every generation (one-shot generate.py subprocess), we keep a single resident
+// f5_worker.py process with the model loaded and stream requests to it over
+// stdin/stdout. Custom-voice generation then only pays for inference.
+// ─────────────────────────────────────────────────────────────────────────────
+
+struct F5Worker {
+    child: Child,
+    stdin: ChildStdin,
+    reader: BufReader<ChildStdout>,
+}
+
+#[derive(Default)]
+struct F5WorkerState(Mutex<Option<F5Worker>>);
+
+/// Spawn the worker and block until it reports `{"status":"ready"}` (model loaded).
+fn spawn_f5_worker() -> Result<F5Worker, String> {
+    let py = python_exe();
+    let mut child = Command::new(&py)
+        .arg(format!("{}/f5_worker.py", backend_dir()))
+        .env("PATH", augmented_path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit()) // worker diagnostics flow to the app's stderr/log
+        .spawn()
+        .map_err(|e| format!("Failed to start F5 worker ({}): {}", py, e))?;
+    let stdin = child.stdin.take().ok_or("F5 worker has no stdin")?;
+    let stdout = child.stdout.take().ok_or("F5 worker has no stdout")?;
+    let mut reader = BufReader::new(stdout);
+    loop {
+        let mut line = String::new();
+        let n = reader
+            .read_line(&mut line)
+            .map_err(|e| format!("F5 worker read error during startup: {}", e))?;
+        if n == 0 {
+            return Err("F5 worker exited before becoming ready".to_string());
+        }
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if line.contains("\"ready\"") {
+            break;
+        }
+        if line.contains("\"fatal\"") {
+            return Err(format!("F5 worker failed to load model: {}", line));
+        }
+    }
+    Ok(F5Worker { child, stdin, reader })
+}
+
+/// Send one request to the worker; restart it once if the pipe is dead.
+fn f5_generate(state: &Mutex<Option<F5Worker>>, request: &str) -> Result<String, String> {
+    for attempt in 0..2 {
+        let mut guard = state.lock().map_err(|e| format!("F5 worker lock poisoned: {}", e))?;
+        if guard.is_none() {
+            *guard = Some(spawn_f5_worker()?);
+        }
+        let worker = guard.as_mut().unwrap();
+
+        // Write the request line.
+        if writeln!(worker.stdin, "{}", request)
+            .and_then(|_| worker.stdin.flush())
+            .is_err()
+        {
+            let _ = guard.take().map(|mut w| w.child.kill());
+            if attempt == 0 { continue; }
+            return Err("F5 worker write failed".to_string());
+        }
+
+        // Read the response line.
+        let mut line = String::new();
+        match worker.reader.read_line(&mut line) {
+            Ok(0) => {
+                let _ = guard.take().map(|mut w| w.child.kill());
+                if attempt == 0 { continue; }
+                return Err("F5 worker closed unexpectedly".to_string());
+            }
+            Err(e) => {
+                let _ = guard.take().map(|mut w| w.child.kill());
+                if attempt == 0 { continue; }
+                return Err(format!("F5 worker read error: {}", e));
+            }
+            Ok(_) => {}
+        }
+
+        let v: serde_json::Value = serde_json::from_str(line.trim())
+            .map_err(|e| format!("Bad F5 worker response '{}': {}", line.trim(), e))?;
+        return match v.get("status").and_then(|s| s.as_str()) {
+            Some("ok") => Ok(v.get("file").and_then(|f| f.as_str()).unwrap_or("").to_string()),
+            Some("error") => Err(v
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("unknown F5 error")
+                .to_string()),
+            other => Err(format!("Unexpected F5 worker status: {:?}", other)),
+        };
+    }
+    Err("F5 worker unavailable".to_string())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // AUDIO GENERATION
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[tauri::command]
 fn generate_voice(
+    state: tauri::State<'_, F5WorkerState>,
     text: String, voice: String, voice_engine: Option<String>,
     emotion: Option<f64>, speed: Option<f64>, pitch: Option<f64>,
     volume: Option<f64>, style_strength: Option<f64>, trim_silence: Option<bool>,
     mastering_preset: Option<String>,
 ) -> Result<String, String> {
-    let py = python_exe();
-    let mut engine = voice_engine.unwrap_or_else(|| voice.clone());
-    for prefix in &["f5tts|"] {
-        if engine.starts_with(prefix) && engine.matches('|').count() == 1 {
-            let abs_voices_dir = std::fs::canonicalize(custom_voices_dir())
-                .unwrap_or_else(|_| std::path::PathBuf::from(custom_voices_dir()));
-            engine = format!("{}|{}", engine, abs_voices_dir.to_string_lossy());
-            break;
-        }
+    let engine = voice_engine.unwrap_or_else(|| voice.clone());
+
+    // ── Custom voices → persistent F5-TTS worker (no per-call model reload) ──
+    if engine.starts_with("f5tts|") {
+        let voice_id = engine.splitn(3, '|').nth(1).unwrap_or("").to_string();
+        let abs_voices_dir = std::fs::canonicalize(custom_voices_dir())
+            .unwrap_or_else(|_| std::path::PathBuf::from(custom_voices_dir()));
+        let req = serde_json::json!({
+            "text":         text,
+            "voice_id":     voice_id,
+            "voices_dir":   abs_voices_dir.to_string_lossy(),
+            "speed":        speed.unwrap_or(1.0),
+            "pitch":        pitch.unwrap_or(0.0),
+            "volume":       volume.unwrap_or(80.0),
+            "trim_silence": trim_silence.unwrap_or(false),
+            "mastering":    mastering_preset.unwrap_or_else(|| "none".to_string()),
+        });
+        return f5_generate(&state.0, &req.to_string());
     }
+
+    // ── All other engines (Kokoro, Piper, Coqui) → one-shot generate.py ──────
+    let py = python_exe();
     let output = Command::new(&py)
         .arg(format!("{}/generate.py", backend_dir()))
         .arg(&text).arg(&engine)
@@ -739,7 +857,8 @@ fn run_setup(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
+        .manage(F5WorkerState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -767,6 +886,20 @@ pub fn run() {
             check_license,
             activate_license,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        // Tear down the resident F5-TTS worker when the app quits so we don't
+        // leave an orphaned Python process holding the model in memory.
+        if let tauri::RunEvent::Exit = event {
+            if let Some(state) = app_handle.try_state::<F5WorkerState>() {
+                if let Ok(mut guard) = state.0.lock() {
+                    if let Some(mut w) = guard.take() {
+                        let _ = w.child.kill();
+                    }
+                }
+            }
+        }
+    });
 }

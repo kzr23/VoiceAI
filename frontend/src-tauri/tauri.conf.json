@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Curzon",
-  "version": "1.1.8",
+  "version": "1.1.9",
   "identifier": "com.curzon.voiceai",
   "build": {
     "frontendDist": "../dist",
@@ -34,6 +34,8 @@
       "../../setup.sh": "scripts/setup.sh",
       "../../setup.ps1": "scripts/setup.ps1",
       "../../backend/generate.py": "backend/generate.py",
+      "../../backend/f5_worker.py": "backend/f5_worker.py",
+      "../../backend/audio_post.py": "backend/audio_post.py",
       "../../backend/enhance.py": "backend/enhance.py",
       "../../backend/trim.py": "backend/trim.py",
       "../../backend/train_voice.py": "backend/train_voice.py",
