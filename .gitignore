@@ -18,6 +18,12 @@ backend/input.txt
 backend/output.wav
 backend/download_progress.json
 backend/download_stderr.log
+backend/f5_worker.log
+*.log
+
+# ── User / license data (never commit) ────────────────────────────────────────
+license.json
+backend/*.wav
 
 # ── Generated audio (user data — not source code) ─────────────────────────────
 backend/history/
