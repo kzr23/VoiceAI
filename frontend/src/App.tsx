@@ -632,9 +632,16 @@ function App() {
     setTimeout(()=>{ setRefreshing(false); setStatus("Ready"); },600);
   };
 
-  // ── Init waveform ────────────────────────────────────────────────────────────
+  // ── Load data once main app is visible ───────────────────────────────────────
   useEffect(()=>{
-    if (!waveRef.current) return;
+    if (!setupChecked || !licensed || setupNeeded) return;
+    loadHistory();
+    loadCustomVoices();
+  },[setupChecked, licensed, setupNeeded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Init waveform once main app is visible and container is in the DOM ───────
+  useEffect(()=>{
+    if (!setupChecked || !licensed || setupNeeded || !waveRef.current || waveSurferRef.current) return;
     const ws = WaveSurfer.create({
       container: waveRef.current,
       height: 110,
@@ -654,10 +661,8 @@ function App() {
     ws.on("timeupdate", (t:number)=> setMainCurrentTime(t));
     ws.on("ready",      (dur:number)=>{ setMainDuration(dur); setTrimEnd(dur); setTrimStart(0); });
     waveSurferRef.current = ws;
-    loadHistory();
-    loadCustomVoices();
-    return ()=>{ waveSurferRef.current?.destroy(); stopStepTicker(); };
-  },[]);
+    return ()=>{ ws.destroy(); waveSurferRef.current = null; stopStepTicker(); };
+  },[setupChecked, licensed, setupNeeded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Card play timer ──────────────────────────────────────────────────────────
   useEffect(()=>{
