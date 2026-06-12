@@ -164,6 +164,13 @@ jobs:
           cp scripts/mac_install.command "/tmp/cvol/Install Curzon.command"
           chmod +x "/tmp/cvol/Install Curzon.command"
 
+          # Ad-hoc sign the app so Apple Silicon doesn't report it as
+          # "damaged or incomplete". Without an Apple Developer cert, an unsigned
+          # arm64 bundle fails Gatekeeper's signature check on first launch; an
+          # ad-hoc signature ("-") satisfies it. Runs in the writable mounted DMG.
+          codesign --force --deep --sign - "/tmp/cvol/Curzon.app" || \
+            echo "WARN: ad-hoc codesign failed (continuing)"
+
           # Detach
           hdiutil detach /tmp/cvol -quiet
 

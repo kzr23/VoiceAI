@@ -59,10 +59,25 @@ if [ ! -d "$APP_SRC" ]; then
   exit 1
 fi
 
-echo "  → Installing to /Applications..."
-rm -rf "/Applications/${APP_NAME}.app"
-cp -R "$APP_SRC" "/Applications/${APP_NAME}.app"
-xattr -cr "/Applications/${APP_NAME}.app" 2>/dev/null || true
+# Pick an install dir that works WITHOUT admin rights. Standard (non-admin) macOS
+# accounts can't write to /Applications, so fall back to the user's own
+# ~/Applications, which never needs sudo and behaves identically.
+if [ -w /Applications ] 2>/dev/null; then
+  APP_DIR="/Applications"
+else
+  APP_DIR="$HOME/Applications"
+  mkdir -p "$APP_DIR"
+fi
+APP_DEST="$APP_DIR/${APP_NAME}.app"
+
+echo "  → Installing to $APP_DIR ..."
+rm -rf "$APP_DEST" 2>/dev/null || true
+cp -R "$APP_SRC" "$APP_DEST"
+# Strip the quarantine flag (belt-and-suspenders; curl downloads aren't quarantined)
+xattr -cr "$APP_DEST" 2>/dev/null || true
+# Ad-hoc re-sign so Apple Silicon never reports the app as "damaged or incomplete"
+# (an unsigned/invalid-signature arm64 bundle triggers exactly that error).
+codesign --force --deep --sign - "$APP_DEST" 2>/dev/null || true
 
 echo "  → Cleaning up..."
 hdiutil detach "$MOUNT" -quiet 2>/dev/null || true
@@ -72,4 +87,4 @@ echo ""
 echo "  ✓ Done! Launching ${APP_NAME}..."
 echo "    On first launch it installs the AI models (~1-2 GB, 10-20 min, once)."
 echo ""
-open "/Applications/${APP_NAME}.app"
+open "$APP_DEST"
