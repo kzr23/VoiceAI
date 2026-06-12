@@ -1,0 +1,10 @@
+# Stage-1 benchmark deps — intentionally minimal to isolate the provider question.
+# onnxruntime-directml bundles BOTH the CPU and DirectML execution providers.
+onnxruntime-directml>=1.18.0
+numpy>=1.26.0,<2.0
+
+# For NVIDIA machines, to also benchmark the CUDA provider, additionally install:
+#   pip install onnxruntime-gpu
+# (Do not install onnxruntime-gpu and onnxruntime-directml expecting both in one
+#  process on every setup — run CUDA benchmarks on the GPU box separately if they
+#  conflict.)

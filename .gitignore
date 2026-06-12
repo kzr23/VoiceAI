@@ -52,3 +52,7 @@ frontend/src-tauri/src/lib.rs?
 .idea/
 *.swp
 *.swo
+
+# ── Windows POC ──────────────────────────────────────────────────────────────
+windows-poc/engine/venv/
+windows-poc/**/__pycache__/
