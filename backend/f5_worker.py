@@ -51,6 +51,14 @@ os.makedirs(HISTORY_DIR, exist_ok=True)
 _FFMPEG_BIN = os.path.join(SCRIPT_DIR, "bin")
 if os.path.isdir(_FFMPEG_BIN):
     os.environ["PATH"] = _FFMPEG_BIN + os.pathsep + os.environ.get("PATH", "")
+    # Windows: torchcodec (torchaudio's decoder) links the FFmpeg shared DLLs
+    # (avcodec/avformat/avutil). PATH isn't searched for a native lib's deps on
+    # Python 3.8+, so register the dir explicitly.
+    if hasattr(os, "add_dll_directory"):
+        try:
+            _FFMPEG_DLL_DIR = os.add_dll_directory(_FFMPEG_BIN)  # keep ref: GC would un-register it
+        except OSError:
+            pass
 
 # Make audio_post importable regardless of cwd.
 if SCRIPT_DIR not in sys.path:

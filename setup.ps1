@@ -177,45 +177,44 @@ if ($PythonExe -eq "py -3.11") {
 # ===============================================================================
 Step "2/8 - FFmpeg"
 # ===============================================================================
-# FFmpeg is needed to import non-WAV reference clips (mp3/m4a/etc.) for custom
-# voice cloning. We download a static build straight into backend\bin\ rather
-# than using winget, which is unreliable from an app-spawned process (same
-# lesson as the Python installer). The backend scripts prepend backend\bin to
-# PATH so pydub finds it. Non-fatal: WAV reference clips work without ffmpeg.
+# FFmpeg is required for custom-voice (F5) generation in two ways: pydub imports
+# non-WAV reference clips via ffmpeg.exe, AND torchcodec (used by torchaudio to
+# decode audio) links against FFmpeg's SHARED DLLs (avcodec/avformat/avutil/...).
+# So we fetch the *full-shared* build (exes + DLLs) into backend\bin; the backend
+# scripts add it to PATH and call os.add_dll_directory so both can find it.
+# winget is avoided (unreliable from an app-spawned process). Non-fatal: the
+# built-in voices (Kokoro/Piper/Coqui) work without it.
 $FfmpegBin = Join-Path $BackendDir "bin"
 $FfmpegExe = Join-Path $FfmpegBin "ffmpeg.exe"
-$ffmpegFound = $false
 
-try {
-    $ffVer = & ffmpeg -version 2>&1 | Select-Object -First 1
-    if ($ffVer -match "ffmpeg") { $ffmpegFound = $true; Ok "FFmpeg already on PATH" }
-} catch {}
-if (-not $ffmpegFound -and (Test-Path $FfmpegExe)) {
-    $ffmpegFound = $true; Ok "FFmpeg already present in backend\bin"
-}
+# Present only if the shared DLLs are there too - an older build that dropped
+# just ffmpeg.exe is NOT enough for torchcodec.
+$HaveShared = (Test-Path $FfmpegExe) -and `
+    ((Get-ChildItem $FfmpegBin -Filter "avcodec*.dll" -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0)
 
-if (-not $ffmpegFound) {
-    Log "Downloading FFmpeg static build (~80 MB)..."
+if ($HaveShared) {
+    Ok "FFmpeg (shared) already present in backend\bin"
+} else {
+    Log "Downloading FFmpeg shared build (~110 MB, includes DLLs for torchcodec)..."
     try {
         New-Item -ItemType Directory -Force -Path $FfmpegBin | Out-Null
         $ffZip = Join-Path $env:TEMP "curzon_ffmpeg.zip"
         $ffTmp = Join-Path $env:TEMP "curzon_ffmpeg_extract"
-        Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" `
+        Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.zip" `
             -OutFile $ffZip -UseBasicParsing -ErrorAction Stop
         if (Test-Path $ffTmp) { Remove-Item $ffTmp -Recurse -Force }
         Expand-Archive -Path $ffZip -DestinationPath $ffTmp -Force
-        $exe = Get-ChildItem $ffTmp -Recurse -Filter ffmpeg.exe  | Select-Object -First 1
-        $prb = Get-ChildItem $ffTmp -Recurse -Filter ffprobe.exe | Select-Object -First 1
-        if ($exe) { Copy-Item $exe.FullName $FfmpegExe -Force }
-        if ($prb) { Copy-Item $prb.FullName (Join-Path $FfmpegBin "ffprobe.exe") -Force }
+        # Copy the whole bin\ (ffmpeg.exe, ffprobe.exe AND the shared DLLs).
+        $exe = Get-ChildItem $ffTmp -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+        if ($exe) { Copy-Item (Join-Path $exe.DirectoryName "*") -Destination $FfmpegBin -Force }
         Remove-Item $ffZip, $ffTmp -Recurse -Force -ErrorAction SilentlyContinue
-        if (Test-Path $FfmpegExe) {
-            Ok "FFmpeg installed to backend\bin"
+        if ((Test-Path $FfmpegExe) -and (Get-ChildItem $FfmpegBin -Filter "avcodec*.dll" -ErrorAction SilentlyContinue)) {
+            Ok "FFmpeg (shared) installed to backend\bin"
         } else {
-            Warn "FFmpeg extract failed - cloning from non-WAV clips may not work (WAV is fine)."
+            Warn "FFmpeg extract failed - custom-voice generation may not work (built-in voices are fine)."
         }
     } catch {
-        Warn "FFmpeg download failed - cloning from non-WAV clips may not work (WAV is fine): $_"
+        Warn "FFmpeg download failed - custom-voice generation may not work (built-in voices are fine): $_"
     }
 }
 

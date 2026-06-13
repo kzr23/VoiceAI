@@ -16,6 +16,11 @@ import numpy as np
 _FFMPEG_BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin")
 if os.path.isdir(_FFMPEG_BIN):
     os.environ["PATH"] = _FFMPEG_BIN + os.pathsep + os.environ.get("PATH", "")
+    if hasattr(os, "add_dll_directory"):  # Windows: let native libs find the FFmpeg DLLs
+        try:
+            _FFMPEG_DLL_DIR = os.add_dll_directory(_FFMPEG_BIN)  # keep ref: GC would un-register it
+        except OSError:
+            pass
 
 
 def pitch_shift_wav(path, semitones):
