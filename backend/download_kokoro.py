@@ -1,6 +1,16 @@
 #!/usr/bin/env python3.11
 """Download Kokoro ONNX model files from GitHub releases."""
-import os, sys, json, urllib.request
+import os, sys, json, ssl, urllib.request
+
+# Verify TLS against the certifi CA bundle. Python's stock urllib on a fresh
+# Windows box often can't find a local issuer cert (CERTIFICATE_VERIFY_FAILED)
+# even though pip / HuggingFace work, because they use certifi while urllib
+# does not. requests (a dependency) ships certifi, so it's always present.
+try:
+    import certifi
+    _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
+except Exception:
+    _SSL_CTX = ssl.create_default_context()
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR  = os.path.join(SCRIPT_DIR, "models", "kokoro")
@@ -23,7 +33,7 @@ for name, url in FILES.items():
     _emit({"file": name, "status": "downloading"})
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "VoiceAI/1.0"})
-        with urllib.request.urlopen(req, timeout=300) as r, open(path, "wb") as f:
+        with urllib.request.urlopen(req, timeout=300, context=_SSL_CTX) as r, open(path, "wb") as f:
             total    = int(r.headers.get("Content-Length", 0))
             done     = 0
             last_pct = -1

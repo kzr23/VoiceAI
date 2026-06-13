@@ -16,6 +16,12 @@ import sys, os, json, time, re
 
 os.environ.pop("PYTHONHASHSEED", None)
 
+# Make a bundled FFmpeg (backend/bin, downloaded by setup.ps1) discoverable to
+# pydub so non-WAV reference clips (mp3/m4a/aac/ogg/flac) can be imported.
+_FFMPEG_BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin")
+if os.path.isdir(_FFMPEG_BIN):
+    os.environ["PATH"] = _FFMPEG_BIN + os.pathsep + os.environ.get("PATH", "")
+
 def err(msg):
     print(json.dumps({"status": "error", "message": msg}), flush=True)
     sys.exit(1)

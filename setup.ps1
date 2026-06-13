@@ -177,23 +177,45 @@ if ($PythonExe -eq "py -3.11") {
 # ===============================================================================
 Step "2/8 - FFmpeg"
 # ===============================================================================
+# FFmpeg is needed to import non-WAV reference clips (mp3/m4a/etc.) for custom
+# voice cloning. We download a static build straight into backend\bin\ rather
+# than using winget, which is unreliable from an app-spawned process (same
+# lesson as the Python installer). The backend scripts prepend backend\bin to
+# PATH so pydub finds it. Non-fatal: WAV reference clips work without ffmpeg.
+$FfmpegBin = Join-Path $BackendDir "bin"
+$FfmpegExe = Join-Path $FfmpegBin "ffmpeg.exe"
 $ffmpegFound = $false
+
 try {
     $ffVer = & ffmpeg -version 2>&1 | Select-Object -First 1
-    if ($ffVer -match "ffmpeg") { $ffmpegFound = $true; Ok "FFmpeg already installed" }
+    if ($ffVer -match "ffmpeg") { $ffmpegFound = $true; Ok "FFmpeg already on PATH" }
 } catch {}
+if (-not $ffmpegFound -and (Test-Path $FfmpegExe)) {
+    $ffmpegFound = $true; Ok "FFmpeg already present in backend\bin"
+}
 
 if (-not $ffmpegFound) {
-    Log "Installing FFmpeg via winget..."
+    Log "Downloading FFmpeg static build (~80 MB)..."
     try {
-        winget install --id Gyan.FFmpeg --silent --accept-package-agreements --accept-source-agreements
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + `
-                    [System.Environment]::GetEnvironmentVariable("Path","User")
-        Ok "FFmpeg installed"
+        New-Item -ItemType Directory -Force -Path $FfmpegBin | Out-Null
+        $ffZip = Join-Path $env:TEMP "curzon_ffmpeg.zip"
+        $ffTmp = Join-Path $env:TEMP "curzon_ffmpeg_extract"
+        Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" `
+            -OutFile $ffZip -UseBasicParsing -ErrorAction Stop
+        if (Test-Path $ffTmp) { Remove-Item $ffTmp -Recurse -Force }
+        Expand-Archive -Path $ffZip -DestinationPath $ffTmp -Force
+        $exe = Get-ChildItem $ffTmp -Recurse -Filter ffmpeg.exe  | Select-Object -First 1
+        $prb = Get-ChildItem $ffTmp -Recurse -Filter ffprobe.exe | Select-Object -First 1
+        if ($exe) { Copy-Item $exe.FullName $FfmpegExe -Force }
+        if ($prb) { Copy-Item $prb.FullName (Join-Path $FfmpegBin "ffprobe.exe") -Force }
+        Remove-Item $ffZip, $ffTmp -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path $FfmpegExe) {
+            Ok "FFmpeg installed to backend\bin"
+        } else {
+            Warn "FFmpeg extract failed - cloning from non-WAV clips may not work (WAV is fine)."
+        }
     } catch {
-        Warn "winget install failed. Download FFmpeg manually from https://ffmpeg.org/download.html"
-        Warn "Place ffmpeg.exe in C:\Windows\System32\ or add its folder to PATH."
-        Warn "FFmpeg is optional - voice training will work without it."
+        Warn "FFmpeg download failed - cloning from non-WAV clips may not work (WAV is fine): $_"
     }
 }
 
@@ -344,11 +366,14 @@ if ((Test-Path $KokoroOnnx) -and (Get-Item $KokoroOnnx).Length -gt 10000000) {
     Ok "Kokoro model already downloaded"
 } else {
     Log "Downloading Kokoro ONNX model..."
-    try {
-        & $VenvPython (Join-Path $BackendDir "download_kokoro.py")
+    # NOTE: download_kokoro.py exits 1 on failure. A native non-zero exit does
+    # NOT throw in PowerShell, so try/catch would never fire and we'd print a
+    # false "[OK]". Check the exit code AND that the file actually landed.
+    & $VenvPython (Join-Path $BackendDir "download_kokoro.py")
+    if (($LASTEXITCODE -eq 0) -and (Test-Path $KokoroOnnx) -and (Get-Item $KokoroOnnx).Length -gt 10000000) {
         Ok "Kokoro model downloaded"
-    } catch {
-        Warn "Kokoro download failed - retry with: python backend\download_kokoro.py"
+    } else {
+        Warn "Kokoro model download failed - Kokoro voices unavailable (F5/Piper still work). Re-run setup to retry."
     }
 }
 

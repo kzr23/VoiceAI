@@ -7,8 +7,15 @@ f5_worker.py (persistent model worker) so the post-processing pipeline stays
 identical regardless of how a clip was synthesized.
 """
 
-import sys
+import sys, os
 import numpy as np
+
+# Make a bundled FFmpeg (downloaded into backend/bin by setup.ps1) discoverable
+# to pydub, which shells out to ffmpeg/ffprobe for non-WAV formats. Prepending
+# to PATH in-process propagates to the subprocesses pydub spawns.
+_FFMPEG_BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin")
+if os.path.isdir(_FFMPEG_BIN):
+    os.environ["PATH"] = _FFMPEG_BIN + os.pathsep + os.environ.get("PATH", "")
 
 
 def pitch_shift_wav(path, semitones):
