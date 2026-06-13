@@ -728,7 +728,11 @@ fn license_path() -> std::path::PathBuf {
 }
 
 #[tauri::command]
+#[allow(unreachable_code)]
 fn check_license() -> bool {
+    // ─── TEMP: license gate DISABLED for end-to-end testing ──────────────────
+    // Remove the `return true;` line below to RE-ENABLE before release.
+    return true;
     match fs::read_to_string(license_path()) {
         Ok(s) => s.contains("\"activated\":true"),
         Err(_) => false,
