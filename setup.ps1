@@ -1,6 +1,6 @@
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Curzon VoiceAI — Windows Setup Script (PowerShell)
-#  Supports: Windows 10 (1903+) · Windows 11  · x86_64
+# ===============================================================================
+#  Curzon VoiceAI - Windows Setup Script (PowerShell)
+#  Supports: Windows 10 (1903+) - Windows 11  - x86_64
 #
 #  What this script does:
 #    1. Installs Python 3.11 via winget (if missing)
@@ -13,21 +13,21 @@
 #    8. Pre-downloads F5-TTS + Whisper model weights  (~1.2 GB)
 #
 #  Run once (as regular user) before opening Curzon for the first time.
-#  Right-click → "Run with PowerShell"
-# ═══════════════════════════════════════════════════════════════════════════════
+#  Right-click -> "Run with PowerShell"
+# ===============================================================================
 #Requires -Version 5.1
 
 $ErrorActionPreference = "Stop"
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
+# -- Helpers --------------------------------------------------------------------
 function Log  { Write-Host "  >> $args" -ForegroundColor Cyan }
 function Ok   { Write-Host "  [OK] $args" -ForegroundColor Green }
 function Warn { Write-Host "  [WARN] $args" -ForegroundColor Yellow }
 function Err  { Write-Host "  [ERROR] $args" -ForegroundColor Red; Read-Host "Press Enter to exit"; exit 1 }
-function Step { Write-Host; Write-Host "  ━━━  $args  ━━━" -ForegroundColor Blue; Write-Host }
-function Sep  { Write-Host "  ─────────────────────────────────────────────────────" -ForegroundColor DarkBlue }
+function Step { Write-Host; Write-Host "  ===  $args  ===" -ForegroundColor Blue; Write-Host }
+function Sep  { Write-Host "  -----------------------------------------------------" -ForegroundColor DarkBlue }
 
-# ── Resolve paths ──────────────────────────────────────────────────────────────
+# -- Resolve paths --------------------------------------------------------------
 $ScriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ResourceDir = $env:CURZON_RESOURCE_DIR
 $BackendDir  = $env:CURZON_BACKEND_DIR
@@ -48,17 +48,15 @@ $VenvDir    = Join-Path $BackendDir "venv"
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 $VenvPip    = Join-Path $VenvDir "Scripts\pip.exe"
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 if (-not $env:CURZON_NON_INTERACTIVE) {
 Clear-Host
 Write-Host
-Write-Host "   ██████╗██╗   ██╗██████╗ ███████╗ ██████╗ ███╗   ██╗" -ForegroundColor Blue
-Write-Host "  ██╔════╝██║   ██║██╔══██╗╚══███╔╝██╔═══██╗████╗  ██║" -ForegroundColor Blue
-Write-Host "  ██║     ██║   ██║██████╔╝  ███╔╝ ██║   ██║██╔██╗ ██║" -ForegroundColor Blue
-Write-Host "  ╚██████╗╚██████╔╝██║  ██║███████╗╚██████╔╝██║ ╚████║" -ForegroundColor Blue
-Write-Host "   ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═╝  ╚═══╝" -ForegroundColor Blue
+Write-Host "  =====================================" -ForegroundColor Blue
+Write-Host "             C U R Z O N" -ForegroundColor Blue
+Write-Host "  =====================================" -ForegroundColor Blue
 Write-Host
-Write-Host "  VoiceAI — Windows Setup" -ForegroundColor White
+Write-Host "  VoiceAI - Windows Setup" -ForegroundColor White
 Sep
 Write-Host
 Write-Host "  This will install all dependencies and voice models."
@@ -70,12 +68,12 @@ Write-Host
 $continue = Read-Host "  Continue? [Y/n]"
 if ($continue -eq "n" -or $continue -eq "N") { Write-Host "  Setup cancelled."; exit 0 }
 } else {
-    Log "Curzon first-time setup — backend: $BackendDir"
+    Log "Curzon first-time setup - backend: $BackendDir"
 }
 
-# ═══════════════════════════════════════════════════════════════════════════════
-Step "1/8 · Python 3.11"
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+Step "1/8 - Python 3.11"
+# ===============================================================================
 $PythonExe = $null
 
 # Check common installation locations (per-user and per-machine)
@@ -120,9 +118,9 @@ if (-not $PythonExe) {
     } catch {}
 }
 
-# Not found → auto-install via winget (same approach used for FFmpeg below).
+# Not found -> auto-install via winget (same approach used for FFmpeg below).
 if (-not $PythonExe) {
-    Log "Python 3.11 not found — installing automatically via winget..."
+    Log "Python 3.11 not found - installing automatically via winget..."
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         try {
             winget install -e --id Python.Python.3.11 --silent `
@@ -148,7 +146,7 @@ if (-not $PythonExe) {
     }
 }
 
-# Still not found → give clear manual instructions and stop.
+# Still not found -> give clear manual instructions and stop.
 if (-not $PythonExe) {
     Write-Host
     Warn "Could not install Python 3.11 automatically."
@@ -165,9 +163,9 @@ if ($PythonExe -eq "py -3.11") {
     $PythonExe = (& py -3.11 -c "import sys; print(sys.executable)").Trim()
 }
 
-# ═══════════════════════════════════════════════════════════════════════════════
-Step "2/8 · FFmpeg"
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+Step "2/8 - FFmpeg"
+# ===============================================================================
 $ffmpegFound = $false
 try {
     $ffVer = & ffmpeg -version 2>&1 | Select-Object -First 1
@@ -184,13 +182,13 @@ if (-not $ffmpegFound) {
     } catch {
         Warn "winget install failed. Download FFmpeg manually from https://ffmpeg.org/download.html"
         Warn "Place ffmpeg.exe in C:\Windows\System32\ or add its folder to PATH."
-        Warn "FFmpeg is optional — voice training will work without it."
+        Warn "FFmpeg is optional - voice training will work without it."
     }
 }
 
-# ═══════════════════════════════════════════════════════════════════════════════
-Step "3/8 · Python Virtual Environment"
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+Step "3/8 - Python Virtual Environment"
+# ===============================================================================
 if (-not (Test-Path $VenvDir)) {
     Log "Creating virtual environment at $VenvDir ..."
     & $PythonExe -m venv $VenvDir
@@ -215,9 +213,9 @@ if ($ResourceDir -and (Test-Path (Join-Path $ResourceDir "backend"))) {
 Log "Upgrading pip, setuptools, wheel..."
 & $VenvPip install --quiet --upgrade pip setuptools wheel
 
-# ═══════════════════════════════════════════════════════════════════════════════
-Step "4/8 · Python Packages"
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+Step "4/8 - Python Packages"
+# ===============================================================================
 Log "Installing core audio packages..."
 & $VenvPip install --quiet `
     "numpy>=1.26.0,<2.0" "scipy>=1.11.0" "librosa>=0.10.2" "soundfile>=0.12.1" `
@@ -238,7 +236,7 @@ Log "Installing Piper TTS..."
 Ok "Piper TTS installed"
 
 # Install GPU (CUDA) PyTorch when an NVIDIA card is present so F5-TTS runs on the
-# GPU with fp16 — the worker auto-uses device="cuda" and the fp16 path with no
+# GPU with fp16 - the worker auto-uses device="cuda" and the fp16 path with no
 # code change. Falls back to CPU-only torch otherwise. If a GPU is present but
 # the driver is missing/old, torch.cuda.is_available() is False at runtime and
 # the worker quietly uses CPU, so this is safe either way.
@@ -253,12 +251,12 @@ try {
 } catch { }
 
 if ($HasNvidia) {
-    Log "NVIDIA GPU detected — installing CUDA PyTorch (~2.5 GB, big speed-up)..."
+    Log "NVIDIA GPU detected - installing CUDA PyTorch (~2.5 GB, big speed-up)..."
     & $VenvPip install --quiet torch torchaudio `
         --index-url https://download.pytorch.org/whl/cu121
     Ok "PyTorch (CUDA) installed"
 } else {
-    Log "No NVIDIA GPU — installing CPU PyTorch (~600 MB)..."
+    Log "No NVIDIA GPU - installing CPU PyTorch (~600 MB)..."
     & $VenvPip install --quiet torch torchaudio `
         --index-url https://download.pytorch.org/whl/cpu
     Ok "PyTorch (CPU) installed"
@@ -274,9 +272,9 @@ Log "Installing F5-TTS..."
 Ok "F5-TTS installed"
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-Step "5/8 · NLTK Language Data"
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+Step "5/8 - NLTK Language Data"
+# ===============================================================================
 Log "Downloading NLTK tokeniser data..."
 $nltkScript = @"
 import nltk
@@ -287,9 +285,9 @@ print('NLTK data ready')
 & $VenvPython -c $nltkScript
 Ok "NLTK data downloaded"
 
-# ═══════════════════════════════════════════════════════════════════════════════
-Step "6/8 · Piper Voice Models"
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+Step "6/8 - Piper Voice Models"
+# ===============================================================================
 $PiperDir  = Join-Path $BackendDir "models\piper"
 New-Item -ItemType Directory -Force -Path $PiperDir | Out-Null
 $PiperBase = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
@@ -307,7 +305,7 @@ function Download-PiperVoice {
             Invoke-WebRequest -Uri "$PiperBase/$LangPath/$Model.onnx.json" -OutFile $jsonPath -UseBasicParsing -ErrorAction Stop
             Ok "$Model downloaded"
         } catch {
-            Warn "$Model download failed — Thorsten/Kerstin voices may not work: $_"
+            Warn "$Model download failed - Thorsten/Kerstin voices may not work: $_"
         }
     }
 }
@@ -315,9 +313,9 @@ function Download-PiperVoice {
 Download-PiperVoice -Model "de_DE-thorsten-high" -LangPath "de/de_DE/thorsten/high"
 Download-PiperVoice -Model "de_DE-kerstin-low"   -LangPath "de/de_DE/kerstin/low"
 
-# ═══════════════════════════════════════════════════════════════════════════════
-Step "7/8 · Kokoro Voice Model  (~100 MB)"
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+Step "7/8 - Kokoro Voice Model  (~100 MB)"
+# ===============================================================================
 $KokoroDir  = Join-Path $BackendDir "models\kokoro"
 $KokoroOnnx = Join-Path $KokoroDir "kokoro-v1.0.onnx"
 New-Item -ItemType Directory -Force -Path $KokoroDir | Out-Null
@@ -330,13 +328,13 @@ if ((Test-Path $KokoroOnnx) -and (Get-Item $KokoroOnnx).Length -gt 10000000) {
         & $VenvPython (Join-Path $BackendDir "download_kokoro.py")
         Ok "Kokoro model downloaded"
     } catch {
-        Warn "Kokoro download failed — retry with: python backend\download_kokoro.py"
+        Warn "Kokoro download failed - retry with: python backend\download_kokoro.py"
     }
 }
 
-# ═══════════════════════════════════════════════════════════════════════════════
-Step "8/8 · F5-TTS & Whisper Model Weights  (~1.2 GB)"
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+Step "8/8 - F5-TTS & Whisper Model Weights  (~1.2 GB)"
+# ===============================================================================
 Log "Pre-downloading F5-TTS model weights (avoids delay on first voice generation)..."
 $f5Script = @"
 import sys, torch
@@ -370,10 +368,10 @@ try {
     & $VenvPython -c $f5Script
     Ok "F5-TTS and Whisper model weights cached"
 } catch {
-    Warn "F5-TTS model pre-download failed — models will download on first use"
+    Warn "F5-TTS model pre-download failed - models will download on first use"
 }
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 Write-Host
 Sep
 Write-Host "  Setup complete!" -ForegroundColor Green
@@ -381,10 +379,10 @@ Sep
 Write-Host
 Write-Host "  What's next:" -ForegroundColor White
 Write-Host "   1. Double-click  Curzon.exe  to launch the application"
-Write-Host "   2. All voice engines are ready — no internet required"
+Write-Host "   2. All voice engines are ready - no internet required"
 Write-Host
 Write-Host "  If you encounter issues:" -ForegroundColor White
-Write-Host "   • Re-run this script — it safely skips completed steps"
-Write-Host "   • Ensure  backend\venv\  exists and is populated"
+Write-Host "   * Re-run this script - it safely skips completed steps"
+Write-Host "   * Ensure  backend\venv\  exists and is populated"
 Write-Host
 Read-Host "  Press Enter to exit"
