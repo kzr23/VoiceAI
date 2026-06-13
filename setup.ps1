@@ -23,7 +23,7 @@ $ErrorActionPreference = "Stop"
 function Log  { Write-Host "  >> $args" -ForegroundColor Cyan }
 function Ok   { Write-Host "  [OK] $args" -ForegroundColor Green }
 function Warn { Write-Host "  [WARN] $args" -ForegroundColor Yellow }
-function Err  { Write-Host "  [ERROR] $args" -ForegroundColor Red; Read-Host "Press Enter to exit"; exit 1 }
+function Err  { Write-Host "  [ERROR] $args" -ForegroundColor Red; if (-not $env:CURZON_NON_INTERACTIVE) { Read-Host "Press Enter to exit" }; exit 1 }
 function Step { Write-Host; Write-Host "  ===  $args  ===" -ForegroundColor Blue; Write-Host }
 function Sep  { Write-Host "  -----------------------------------------------------" -ForegroundColor DarkBlue }
 
@@ -434,4 +434,8 @@ Write-Host "  If you encounter issues:" -ForegroundColor White
 Write-Host "   * Re-run this script - it safely skips completed steps"
 Write-Host "   * Ensure  backend\venv\  exists and is populated"
 Write-Host
-Read-Host "  Press Enter to exit"
+# Guard the final prompt: when launched by the app (CURZON_NON_INTERACTIVE=1)
+# there is no interactive stdin, so an unguarded Read-Host blocks forever - the
+# process never exits and the app's setup screen hangs at 94% even though setup
+# actually completed.
+if (-not $env:CURZON_NON_INTERACTIVE) { Read-Host "  Press Enter to exit" }
