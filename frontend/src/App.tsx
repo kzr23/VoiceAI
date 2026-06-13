@@ -23,8 +23,9 @@ function parseSetupProgress(log: string[]) {
   let step = 0, total = 8, stepName = "";
   let lastLine = "";
   for (let i = log.length - 1; i >= 0; i--) {
-    const m = log[i].match(/(\d+)\/(\d+)[^·]*·\s*([^━\n]+)/);
-    if (m && !stepName) { step = parseInt(m[1]); total = parseInt(m[2]); stepName = m[3].trim(); }
+    // Match both formats: Mac "4/8 · Name ━━━" and Windows (pure-ASCII) "4/8 - Name ===".
+    const m = log[i].match(/(\d+)\/(\d+)\s*[·-]\s*([^━=\n]+)/);
+    if (m && !stepName) { step = parseInt(m[1]); total = parseInt(m[2]); stepName = m[3].replace(/=+$/,"").trim(); }
     const l = log[i].trim();
     if (!lastLine && l && !l.includes("━━━") && !l.includes("───") && !l.includes("first-time setup")) lastLine = l.slice(0, 72);
     if (step && lastLine) break;
