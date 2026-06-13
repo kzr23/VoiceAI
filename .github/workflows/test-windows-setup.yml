@@ -1,0 +1,74 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+#  End-to-end test of the Windows first-run setup on REAL x64 Windows.
+#
+#  GitHub's windows-latest runners are x64 — so this validates the exact thing an
+#  Apple Silicon (ARM) VM cannot: that setup.ps1 runs to completion and the full
+#  PyTorch + Coqui + F5-TTS + ONNX stack installs and imports on x64 Windows.
+#
+#  Trigger: automatically when setup.ps1 / requirements change, or manually from
+#  the Actions tab (Run workflow).
+# ═══════════════════════════════════════════════════════════════════════════════
+name: Test Windows Setup (x64)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'setup.ps1'
+      - 'backend/requirements.txt'
+      - '.github/workflows/test-windows-setup.yml'
+
+jobs:
+  setup:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      # Provide a deterministic x64 Python 3.11 and hand it to setup.ps1 via
+      # CURZON_PYTHON, so the test doesn't depend on winget/launcher quirks.
+      - id: py
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: 'x64'
+
+      # Run the SAME script the app runs, under Windows PowerShell 5.1 (powershell),
+      # not pwsh 7 — that's what the installed app uses, and where the ASCII bug bit.
+      - name: Run setup.ps1 end-to-end
+        shell: powershell
+        env:
+          CURZON_BACKEND_DIR: ${{ github.workspace }}\backend
+          CURZON_NON_INTERACTIVE: '1'
+          CURZON_PYTHON: ${{ steps.py.outputs.python-path }}
+        run: .\setup.ps1
+
+      # The real validation: does the heavy stack import on x64 Windows?
+      - name: Verify the stack installed and imports
+        shell: powershell
+        run: |
+          $py = Join-Path "${{ github.workspace }}" "backend\venv\Scripts\python.exe"
+          if (-not (Test-Path $py)) { Write-Error "venv python missing: $py"; exit 1 }
+          & $py -c "import numpy, scipy, soundfile, onnxruntime; print('core OK  numpy', numpy.__version__)"
+          if ($LASTEXITCODE) { exit 1 }
+          & $py -c "import torch, torchaudio; print('torch', torch.__version__)"
+          if ($LASTEXITCODE) { exit 1 }
+          & $py -c "import TTS; print('coqui TTS OK')"
+          if ($LASTEXITCODE) { exit 1 }
+          & $py -c "import f5_tts; print('f5-tts OK')"
+          if ($LASTEXITCODE) { exit 1 }
+          & $py -c "import kokoro_onnx; print('kokoro OK')"
+          if ($LASTEXITCODE) { exit 1 }
+          Write-Host "All imports succeeded on x64 Windows."
+
+      # Best-effort: actually synthesize a clip with a built-in (Kokoro) voice to
+      # prove generate.py works end-to-end. Non-fatal so an incidental hiccup
+      # doesn't fail the install validation above.
+      - name: Smoke-test generation (built-in voice, best effort)
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $py = Join-Path "${{ github.workspace }}" "backend\venv\Scripts\python.exe"
+          Push-Location "${{ github.workspace }}\backend"
+          & $py generate.py "This is a Windows setup smoke test." "kokoro|af_heart|en-us" 50 1.0 0 80 50 0 none
+          Pop-Location

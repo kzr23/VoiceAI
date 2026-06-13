@@ -76,6 +76,12 @@ Step "1/8 - Python 3.11"
 # ===============================================================================
 $PythonExe = $null
 
+# Explicit override (used by CI / advanced setups) — skip detection entirely.
+if ($env:CURZON_PYTHON -and (Test-Path $env:CURZON_PYTHON)) {
+    $PythonExe = $env:CURZON_PYTHON
+    Ok "Using Python from CURZON_PYTHON: $(& $PythonExe --version 2>&1)"
+}
+
 # Check common installation locations (per-user and per-machine)
 $PythonCandidates = @(
     (Join-Path $env:LOCALAPPDATA "Programs\Python\Python311\python.exe"),
@@ -88,13 +94,15 @@ $PythonCandidates = @(
 )
 
 # Also check via 'py' launcher (Python for Windows)
-try {
-    $pyVer = & py -3.11 --version 2>$null
-    if ($LASTEXITCODE -eq 0) {
-        $PythonExe = "py -3.11"
-        Ok "Python 3.11 found via py launcher: $pyVer"
-    }
-} catch {}
+if (-not $PythonExe) {
+    try {
+        $pyVer = & py -3.11 --version 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            $PythonExe = "py -3.11"
+            Ok "Python 3.11 found via py launcher: $pyVer"
+        }
+    } catch {}
+}
 
 if (-not $PythonExe) {
     foreach ($c in $PythonCandidates) {
