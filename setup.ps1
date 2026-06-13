@@ -126,31 +126,33 @@ if (-not $PythonExe) {
     } catch {}
 }
 
-# Not found -> auto-install via winget (same approach used for FFmpeg below).
+# Not found -> download and silently install the official python.org build.
+# We use the direct installer (not winget) because winget frequently fails when
+# setup is spawned by the GUI app, whereas a /quiet installer runs from any
+# process context. InstallAllUsers=0 means no admin rights are required.
 if (-not $PythonExe) {
-    Log "Python 3.11 not found - installing automatically via winget..."
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        try {
-            winget install -e --id Python.Python.3.11 --silent `
-                --accept-package-agreements --accept-source-agreements
-        } catch {
-            Warn "winget install raised: $_"
+    Log "Python 3.11 not found - downloading the official installer (~25 MB)..."
+    $pyUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
+    $pyInstaller = Join-Path $env:TEMP "python-3.11.9-amd64.exe"
+    try {
+        Invoke-WebRequest -Uri $pyUrl -OutFile $pyInstaller -UseBasicParsing
+        Log "Installing Python 3.11 (per-user, silent)..."
+        $p = Start-Process -FilePath $pyInstaller -Wait -PassThru -ArgumentList "/quiet","InstallAllUsers=0","PrependPath=1","Include_launcher=1","Include_pip=1"
+        Log "Python installer finished (exit code $($p.ExitCode))"
+    } catch {
+        Warn "Python install failed: $_"
+    }
+    # Refresh PATH so the freshly installed Python is visible in this session
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    # Re-detect: py launcher first, then candidate install locations
+    try {
+        $pyVer = & py -3.11 --version 2>$null
+        if ($LASTEXITCODE -eq 0) { $PythonExe = "py -3.11"; Ok "Python 3.11 installed: $pyVer" }
+    } catch {}
+    if (-not $PythonExe) {
+        foreach ($c in $PythonCandidates) {
+            if (Test-Path $c) { $PythonExe = $c; Ok "Python 3.11 installed: $(& $c --version 2>&1)"; break }
         }
-        # Refresh PATH so the freshly installed Python is visible in this session
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + `
-                    [System.Environment]::GetEnvironmentVariable("Path","User")
-        # Re-detect: py launcher first, then candidate install locations
-        try {
-            $pyVer = & py -3.11 --version 2>$null
-            if ($LASTEXITCODE -eq 0) { $PythonExe = "py -3.11"; Ok "Python 3.11 installed: $pyVer" }
-        } catch {}
-        if (-not $PythonExe) {
-            foreach ($c in $PythonCandidates) {
-                if (Test-Path $c) { $PythonExe = $c; Ok "Python 3.11 installed: $(& $c --version 2>&1)"; break }
-            }
-        }
-    } else {
-        Warn "winget is not available on this system."
     }
 }
 
@@ -160,7 +162,6 @@ if (-not $PythonExe) {
     Warn "Could not install Python 3.11 automatically."
     Write-Host "  Please install it manually, then relaunch Curzon:" -ForegroundColor Yellow
     Write-Host "    https://www.python.org/downloads/release/python-3119/  (check 'Add Python to PATH')" -ForegroundColor White
-    Write-Host "    or in a terminal:  winget install -e --id Python.Python.3.11" -ForegroundColor White
     Write-Host
     if (-not $env:CURZON_NON_INTERACTIVE) { Read-Host "  After installing, press Enter to close" }
     exit 1

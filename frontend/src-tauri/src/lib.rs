@@ -827,6 +827,11 @@ fn run_setup(app: tauri::AppHandle) -> Result<(), String> {
     let backend_str  = backend_target.to_string_lossy().to_string();
     let resource_str = resource_dir.to_string_lossy().to_string();
 
+    // Capture the full setup transcript to a file so first-run failures are
+    // diagnosable (the UI only shows a generic exit code).
+    let log_path = std::path::PathBuf::from(&home)
+        .join("Documents").join("Curzon").join("setup.log");
+
     let (interpreter, script_args): (String, Vec<String>) = if cfg!(target_os = "windows") {
         let s = resource_dir.join("scripts").join("setup.ps1").to_string_lossy().to_string();
         ("powershell.exe".into(), vec!["-NoProfile".into(), "-ExecutionPolicy".into(), "Bypass".into(), "-File".into(), s])
@@ -852,19 +857,30 @@ fn run_setup(app: tauri::AppHandle) -> Result<(), String> {
             Err(e) => { let _ = app_clone.emit("setup-error", format!("Cannot start setup: {}", e)); return; }
         };
 
+        // Shared, line-buffered handle to setup.log written by both reader threads.
+        let log = std::sync::Arc::new(std::sync::Mutex::new(std::fs::File::create(&log_path).ok()));
+
         if let Some(out) = child.stdout.take() {
             let a = app_clone.clone();
+            let log = log.clone();
             std::thread::spawn(move || {
                 for line in std::io::BufReader::new(out).lines().flatten() {
                     let _ = a.emit("setup-log", &line);
+                    if let Ok(mut g) = log.lock() {
+                        if let Some(f) = g.as_mut() { let _ = writeln!(f, "{}", line); }
+                    }
                 }
             });
         }
         if let Some(err) = child.stderr.take() {
             let a = app_clone.clone();
+            let log = log.clone();
             std::thread::spawn(move || {
                 for line in std::io::BufReader::new(err).lines().flatten() {
                     let _ = a.emit("setup-log", &line);
+                    if let Ok(mut g) = log.lock() {
+                        if let Some(f) = g.as_mut() { let _ = writeln!(f, "{}", line); }
+                    }
                 }
             });
         }
