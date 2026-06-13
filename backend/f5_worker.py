@@ -43,6 +43,15 @@ SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
 HISTORY_DIR = os.path.join(SCRIPT_DIR, "history")
 os.makedirs(HISTORY_DIR, exist_ok=True)
 
+# Make a bundled FFmpeg (backend/bin, downloaded by setup.ps1 on Windows)
+# discoverable. F5-TTS reads the reference clip via pydub's AudioSegment
+# .from_file, which ALWAYS shells out to ffprobe/ffmpeg - even for WAV - so
+# without this, custom-voice generation fails with WinError 2. No-op on macOS
+# (no backend/bin; ffmpeg comes from Homebrew on PATH).
+_FFMPEG_BIN = os.path.join(SCRIPT_DIR, "bin")
+if os.path.isdir(_FFMPEG_BIN):
+    os.environ["PATH"] = _FFMPEG_BIN + os.pathsep + os.environ.get("PATH", "")
+
 # Make audio_post importable regardless of cwd.
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
