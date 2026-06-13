@@ -291,7 +291,12 @@ for pkg in ('punkt','punkt_tab','averaged_perceptron_tagger','averaged_perceptro
     nltk.download(pkg, quiet=True)
 print('NLTK data ready')
 "@
-& $VenvPython -c $nltkScript
+# Run via a temp file (not -c): PowerShell mangles embedded quotes when passing
+# a multi-line script to a native command's -c argument.
+$nltkFile = Join-Path $env:TEMP "curzon_nltk.py"
+Set-Content -Path $nltkFile -Value $nltkScript -Encoding ascii
+& $VenvPython $nltkFile
+Remove-Item $nltkFile -ErrorAction SilentlyContinue
 Ok "NLTK data downloaded"
 
 # ===============================================================================
@@ -358,7 +363,6 @@ try:
     print("[setup] F5-TTS model ready")
 except Exception as e:
     print(f"[setup] F5-TTS model download failed (non-fatal): {e}")
-    sys.exit(1)
 
 # Whisper model (used during voice training to transcribe reference audio)
 try:
@@ -374,7 +378,12 @@ except Exception as e:
     print(f"[setup] Whisper model download failed (non-fatal): {e}")
 "@
 try {
-    & $VenvPython -c $f5Script
+    # Run via a temp file (not -c): PowerShell mangles embedded double-quotes
+    # when passing a multi-line script to a native command's -c argument.
+    $f5File = Join-Path $env:TEMP "curzon_f5_predl.py"
+    Set-Content -Path $f5File -Value $f5Script -Encoding ascii
+    & $VenvPython $f5File
+    Remove-Item $f5File -ErrorAction SilentlyContinue
     Ok "F5-TTS and Whisper model weights cached"
 } catch {
     Warn "F5-TTS model pre-download failed - models will download on first use"
