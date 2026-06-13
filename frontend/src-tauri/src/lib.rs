@@ -6,6 +6,20 @@ use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 use tauri::{Emitter, Manager};
 
+/// Apply Windows' CREATE_NO_WINDOW so spawned console programs (python, ffmpeg,
+/// powershell, etc.) don't flash a black console window on each call. No-op on
+/// every other platform, so macOS/Linux behaviour is unchanged.
+#[cfg(target_os = "windows")]
+fn no_window(cmd: &mut Command) -> &mut Command {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x08000000) // CREATE_NO_WINDOW
+}
+#[cfg(not(target_os = "windows"))]
+#[inline]
+fn no_window(cmd: &mut Command) -> &mut Command {
+    cmd
+}
+
 #[derive(Serialize)]
 struct AudioFile {
     filename: String,
@@ -93,7 +107,7 @@ fn python_exe() -> String {
         ];
         for c in &candidates {
             if std::path::Path::new(c.as_str()).exists()
-                && Command::new(c).arg("--version").output()
+                && no_window(&mut Command::new(c)).arg("--version").output()
                     .map(|o| o.status.success()).unwrap_or(false)
             {
                 return c.clone();
@@ -118,7 +132,7 @@ fn python_exe() -> String {
     ];
     for c in &candidates {
         if std::path::Path::new(c.as_str()).exists()
-            && Command::new(c).arg("--version").output()
+            && no_window(&mut Command::new(c)).arg("--version").output()
                 .map(|o| o.status.success()).unwrap_or(false)
         {
             return c.clone();
@@ -158,7 +172,7 @@ fn kokoro_model_dir()         -> String { format!("{}/models/kokoro", backend_di
 fn debug_paths() -> String {
     let py  = python_exe();
     let dir = backend_dir();
-    let (py_ok, py_ver) = match Command::new(&py).arg("--version").output() {
+    let (py_ok, py_ver) = match no_window(&mut Command::new(&py)).arg("--version").output() {
         Ok(out) => {
             let v = String::from_utf8_lossy(&out.stdout).to_string()
                   + &String::from_utf8_lossy(&out.stderr);
@@ -202,7 +216,7 @@ fn spawn_f5_worker() -> Result<F5Worker, String> {
             script
         ));
     }
-    let mut child = Command::new(&py)
+    let mut child = no_window(&mut Command::new(&py))
         .arg(&script)
         .env("PATH", augmented_path())
         .stdin(Stdio::piped())
@@ -334,7 +348,7 @@ fn generate_voice(
 
     // ── All other engines (Kokoro, Piper, Coqui) → one-shot generate.py ──────
     let py = python_exe();
-    let output = Command::new(&py)
+    let output = no_window(&mut Command::new(&py))
         .arg(format!("{}/generate.py", backend_dir()))
         .arg(&text).arg(&engine)
         .arg(emotion.unwrap_or(50.0).to_string())
@@ -362,7 +376,7 @@ fn generate_voice(
 fn enhance_script(text: String, mode: String, style: String) -> Result<String, String> {
     if text.trim().is_empty() { return Ok(text); }
     let py = python_exe();
-    let output = Command::new(&py)
+    let output = no_window(&mut Command::new(&py))
         .arg(format!("{}/enhance.py", backend_dir()))
         .arg(&mode).arg(&style).arg(&text)
         .env("PATH", augmented_path())
@@ -380,7 +394,7 @@ fn enhance_script(text: String, mode: String, style: String) -> Result<String, S
 #[tauri::command]
 fn stop_audio() -> Result<String, String> {
     if cfg!(target_os = "windows") {
-        let _ = Command::new("taskkill").args(["/F", "/IM", "wmplayer.exe"]).output();
+        let _ = no_window(&mut Command::new("taskkill")).args(["/F", "/IM", "wmplayer.exe"]).output();
     } else {
         let _ = Command::new("pkill").arg("-f").arg("afplay").output();
         let _ = Command::new("pkill").arg("-f").arg("paplay").output();
@@ -490,7 +504,7 @@ fn trim_audio(filename: String, start_sec: f64, end_sec: f64) -> Result<String, 
     let out_name = format!("voice_{}_trim.wav", ts);
     let out_path = format!("{}/{}", history_dir(), out_name);
     let py = python_exe();
-    let output = Command::new(&py)
+    let output = no_window(&mut Command::new(&py))
         .arg(format!("{}/trim.py", backend_dir()))
         .arg(&input_path).arg(&out_path)
         .arg(start_sec.to_string()).arg(end_sec.to_string())
@@ -559,7 +573,7 @@ fn train_voice(audio_path: String, voice_name: String, gender: String) -> Result
     fs::create_dir_all(&voices_dir).map_err(|e| format!("Cannot create custom_voices dir: {}", e))?;
     let abs_voices_dir = std::fs::canonicalize(&voices_dir)
         .unwrap_or_else(|_| std::path::PathBuf::from(&voices_dir));
-    let output = Command::new(&py)
+    let output = no_window(&mut Command::new(&py))
         .arg(format!("{}/train_voice.py", backend_dir()))
         .arg(&audio_path).arg(&voice_name).arg(&gender)
         .arg(abs_voices_dir.to_string_lossy().as_ref())
@@ -632,7 +646,7 @@ fn download_kokoro_model() -> Result<String, String> {
     if !std::path::Path::new(&script).exists() {
         return Err(format!("download_kokoro.py not found at: {}", script));
     }
-    let output = Command::new(&py)
+    let output = no_window(&mut Command::new(&py))
         .arg(&script)
         .env("PATH", augmented_path())
         .output()
@@ -669,7 +683,7 @@ fn save_f5_voice(
     let ref_dest     = format!("{}/{}", voices_dir, ref_filename);
 
     // Prefer ffmpeg for clean conversion; fall back to plain file copy
-    let ff_out = Command::new("ffmpeg")
+    let ff_out = no_window(&mut Command::new("ffmpeg"))
         .args(["-y", "-i", &audio_path, "-t", "10",
                "-ar", "24000", "-ac", "1", "-c:a", "pcm_s16le", &ref_dest])
         .env("PATH", augmented_path())
@@ -758,7 +772,7 @@ fn activate_license(key: String) -> Result<(), String> {
     );
 
     let curl = if cfg!(target_os = "windows") { "curl.exe" } else { "curl" };
-    let out = Command::new(curl)
+    let out = no_window(&mut Command::new(curl))
         .args(["-s", "--max-time", "15", "-X", "POST",
                "https://api.gumroad.com/v2/licenses/verify",
                "-d", &post_data])
@@ -848,6 +862,7 @@ fn run_setup(app: tauri::AppHandle) -> Result<(), String> {
     let app_clone = app.clone();
     std::thread::spawn(move || {
         let mut cmd = Command::new(&interpreter);
+        no_window(&mut cmd); // suppress the console window on Windows
         for a in &script_args { cmd.arg(a); }
         cmd.env("CURZON_BACKEND_DIR",    &backend_str);
         cmd.env("CURZON_RESOURCE_DIR",   &resource_str);
