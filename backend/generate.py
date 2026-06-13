@@ -241,4 +241,15 @@ if trim_silence:   trim_silence_fn(out_path)
 master_audio(out_path, mastering)
 
 print(os.path.basename(out_path))
+
+# Windows only: the one-shot engines load native libraries (onnxruntime for
+# Kokoro/Piper, torch for Coqui) that can throw an access violation during
+# interpreter shutdown on Windows - which makes the process exit non-zero even
+# though the WAV was generated fine, so the app reports "Generation failed"
+# despite success. os._exit skips that cleanup entirely. macOS exits normally
+# (no such issue), so its validated path is untouched.
+sys.stdout.flush()
+sys.stderr.flush()
+if sys.platform == "win32":
+    os._exit(0)
 sys.exit(0)
