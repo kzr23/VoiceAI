@@ -273,10 +273,14 @@ if ($HasNvidia) {
     Ok "PyTorch (CPU) installed"
 }
 
-Log "Installing Coqui TTS..."
+Log "Installing Coqui TTS (coqui-tts fork - prebuilt wheel, no compiler needed)..."
 $env:COQUI_TOS_AGREED = "1"
-& $VenvPip install --quiet "TTS>=0.22.0"
-Ok "Coqui TTS installed"
+& $VenvPip install --quiet "coqui-tts>=0.25.3,<0.26"
+if ($LASTEXITCODE) {
+    Warn "Coqui TTS install failed - VCTK/LJSpeech preset voices unavailable (F5/Kokoro/Piper still work)"
+} else {
+    Ok "Coqui TTS installed"
+}
 
 Log "Installing F5-TTS..."
 & $VenvPip install --quiet "f5-tts>=0.3.0" "cached_path"

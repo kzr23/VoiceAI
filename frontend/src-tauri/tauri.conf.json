@@ -1,7 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Curzon",
-  "version": "1.2.11",
+  "mainBinaryName": "Curzon",
+  "version": "1.2.12",
   "identifier": "com.curzon.voiceai",
   "build": {
     "frontendDist": "../dist",

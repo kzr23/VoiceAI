@@ -25,6 +25,7 @@ piper-tts>=1.2.0
 # because they require special flags or platform-specific index URLs:
 #
 #   torch / torchaudio  — platform-specific wheel (CPU vs MPS vs CUDA)
-#   TTS (Coqui)         — requires COQUI_TOS_AGREED=1
+#   Coqui TTS           — requires COQUI_TOS_AGREED=1. Mac: original `TTS`;
+#                         Windows: `coqui-tts` fork (pure-py wheel, no compiler)
 #   f5-tts              — depends on torch being installed first
 #   openvoice           — installed from GitHub (not on PyPI)
