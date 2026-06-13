@@ -76,7 +76,7 @@ Step "1/8 - Python 3.11"
 # ===============================================================================
 $PythonExe = $null
 
-# Explicit override (used by CI / advanced setups) — skip detection entirely.
+# Explicit override (used by CI / advanced setups) - skip detection entirely.
 if ($env:CURZON_PYTHON -and (Test-Path $env:CURZON_PYTHON)) {
     $PythonExe = $env:CURZON_PYTHON
     Ok "Using Python from CURZON_PYTHON: $(& $PythonExe --version 2>&1)"
