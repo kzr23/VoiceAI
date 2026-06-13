@@ -29,8 +29,10 @@ function Sep  { Write-Host "  --------------------------------------------------
 
 # -- Resolve paths --------------------------------------------------------------
 $ScriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ResourceDir = $env:CURZON_RESOURCE_DIR
-$BackendDir  = $env:CURZON_BACKEND_DIR
+# Strip the Windows extended-length prefix (\\?\). Tauri's resource_dir() can
+# return one, and Join-Path / Test-Path cannot parse a drive out of it -> crash.
+$ResourceDir = $env:CURZON_RESOURCE_DIR -replace '^\\\\\?\\UNC\\','\\' -replace '^\\\\\?\\',''
+$BackendDir  = $env:CURZON_BACKEND_DIR  -replace '^\\\\\?\\UNC\\','\\' -replace '^\\\\\?\\',''
 
 if (-not $BackendDir) {
     if (Test-Path (Join-Path $ScriptDir "generate.py")) {
