@@ -3,7 +3,7 @@
 #  Supports: Windows 10 (1903+) · Windows 11  · x86_64
 #
 #  What this script does:
-#    1. Verifies / guides Python 3.11 installation
+#    1. Installs Python 3.11 via winget (if missing)
 #    2. Checks / installs FFmpeg via winget
 #    3. Creates a Python virtual environment in backend\venv\
 #    4. Installs all Python audio/TTS packages
@@ -78,10 +78,12 @@ Step "1/8 · Python 3.11"
 # ═══════════════════════════════════════════════════════════════════════════════
 $PythonExe = $null
 
-# Check common installation locations
+# Check common installation locations (per-user and per-machine)
 $PythonCandidates = @(
     (Join-Path $env:LOCALAPPDATA "Programs\Python\Python311\python.exe"),
     (Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"),
+    "C:\Program Files\Python311\python.exe",
+    "C:\Program Files\Python312\python.exe",
     "C:\Python311\python.exe",
     "C:\Python312\python.exe",
     (Join-Path $env:USERPROFILE "AppData\Local\Programs\Python\Python311\python.exe")
@@ -118,21 +120,43 @@ if (-not $PythonExe) {
     } catch {}
 }
 
+# Not found → auto-install via winget (same approach used for FFmpeg below).
+if (-not $PythonExe) {
+    Log "Python 3.11 not found — installing automatically via winget..."
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        try {
+            winget install -e --id Python.Python.3.11 --silent `
+                --accept-package-agreements --accept-source-agreements
+        } catch {
+            Warn "winget install raised: $_"
+        }
+        # Refresh PATH so the freshly installed Python is visible in this session
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + `
+                    [System.Environment]::GetEnvironmentVariable("Path","User")
+        # Re-detect: py launcher first, then candidate install locations
+        try {
+            $pyVer = & py -3.11 --version 2>$null
+            if ($LASTEXITCODE -eq 0) { $PythonExe = "py -3.11"; Ok "Python 3.11 installed: $pyVer" }
+        } catch {}
+        if (-not $PythonExe) {
+            foreach ($c in $PythonCandidates) {
+                if (Test-Path $c) { $PythonExe = $c; Ok "Python 3.11 installed: $(& $c --version 2>&1)"; break }
+            }
+        }
+    } else {
+        Warn "winget is not available on this system."
+    }
+}
+
+# Still not found → give clear manual instructions and stop.
 if (-not $PythonExe) {
     Write-Host
-    Warn "Python 3.11 not found on this system."
+    Warn "Could not install Python 3.11 automatically."
+    Write-Host "  Please install it manually, then relaunch Curzon:" -ForegroundColor Yellow
+    Write-Host "    https://www.python.org/downloads/release/python-3119/  (check 'Add Python to PATH')" -ForegroundColor White
+    Write-Host "    or in a terminal:  winget install -e --id Python.Python.3.11" -ForegroundColor White
     Write-Host
-    Write-Host "  Please install Python 3.11 from one of these sources:" -ForegroundColor Yellow
-    Write-Host "    A) python.org  (recommended):" -ForegroundColor Cyan
-    Write-Host "       https://www.python.org/downloads/release/python-3119/" -ForegroundColor White
-    Write-Host "       Check 'Add Python to PATH' during installation" -ForegroundColor White
-    Write-Host
-    Write-Host "    B) Microsoft Store: search 'Python 3.11'" -ForegroundColor Cyan
-    Write-Host
-    Write-Host "    C) winget (if available):" -ForegroundColor Cyan
-    Write-Host "       winget install Python.Python.3.11" -ForegroundColor White
-    Write-Host
-    Read-Host "  After installing, press Enter to re-run this script"
+    if (-not $env:CURZON_NON_INTERACTIVE) { Read-Host "  After installing, press Enter to close" }
     exit 1
 }
 
