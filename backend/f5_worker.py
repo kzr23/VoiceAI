@@ -28,6 +28,15 @@ warnings.filterwarnings("ignore")
 # it here so subprocesses start clean.
 os.environ.pop("PYTHONHASHSEED", None)
 
+# Windows CPU path: let PyTorch / OpenMP / MKL use every logical processor for
+# inference. These env vars only take effect if set BEFORE torch is imported, so
+# do it at module top. No-op on macOS (the MPS path ignores them) and harmless
+# on a Windows CUDA box (GPU still does the work).
+if sys.platform == "win32":
+    _NCPU = str(os.cpu_count() or 1)
+    os.environ.setdefault("OMP_NUM_THREADS", _NCPU)
+    os.environ.setdefault("MKL_NUM_THREADS", _NCPU)
+
 # ── Protocol channel isolation ────────────────────────────────────────────────
 # F5-TTS and its dependencies (torch, tqdm, pydub) print progress such as
 # "Converting audio..." to stdout. The parent reads stdout as a strict
@@ -85,8 +94,9 @@ def log(msg):
             pass
 
 
-# Set to True permanently if fp16 inference ever fails or yields invalid audio.
-_fp16_disabled = False
+# Set to True permanently if mixed-precision (fp16/bf16) inference ever fails or
+# yields invalid audio — generation then falls back to plain fp32 for the session.
+_autocast_disabled = False
 
 
 def emit(obj):
@@ -105,9 +115,34 @@ try:
         DEVICE = "cuda"
     else:
         DEVICE = "cpu"
+
+    # Mixed-precision dtype per device: fp16 on GPU (MPS/CUDA, the validated
+    # path), bf16 on CPU. Modern x86 (e.g. the AWS Sapphire Rapids Xeon) has
+    # AMX-BF16, and bf16 keeps fp32's exponent range so quality is essentially
+    # unchanged. None => plain fp32.
+    if DEVICE in ("mps", "cuda"):
+        _AUTOCAST_DTYPE = torch.float16
+    elif DEVICE == "cpu":
+        _AUTOCAST_DTYPE = torch.bfloat16
+    else:
+        _AUTOCAST_DTYPE = None
+
+    # CPU-only (Windows without a GPU): pin intra-op threads to all logical
+    # processors and keep inter-op at 1 (one request at a time). set_num_interop_
+    # threads must be called before any parallel work starts, so do it here at
+    # startup. No effect on the GPU paths.
+    if DEVICE == "cpu":
+        try:
+            torch.set_num_threads(os.cpu_count() or 1)
+            torch.set_num_interop_threads(1)
+            log(f"CPU threading: intra-op={torch.get_num_threads()} interop=1")
+        except Exception as _te:
+            log(f"CPU thread config skipped: {_te}")
+
+    _prec_label = {torch.float16: "fp16", torch.bfloat16: "bf16"}.get(_AUTOCAST_DTYPE, "fp32")
     from f5_tts.api import F5TTS
     F5 = F5TTS(model="F5TTS_v1_Base", device=DEVICE)
-    log(f"Model loaded on device={DEVICE}")
+    log(f"Model loaded on device={DEVICE} autocast={_prec_label}")
 except Exception as e:
     import traceback
     log(f"Fatal: could not load F5-TTS model: {e}\n{traceback.format_exc()}")
@@ -172,7 +207,7 @@ def handle(req):
             show_info=lambda *a, **k: None,   # keep F5's prints off stdout
         )
         if use_autocast:
-            with torch.autocast(device_type=DEVICE, dtype=torch.float16):
+            with torch.autocast(device_type=DEVICE, dtype=_AUTOCAST_DTYPE):
                 return F5.infer(**kwargs)
         return F5.infer(**kwargs)
 
@@ -186,25 +221,26 @@ def handle(req):
         except Exception:
             return False  # can't tell → assume fine
 
-    global _fp16_disabled
-    use_fp16 = (DEVICE in ("mps", "cuda")) and not _fp16_disabled
+    global _autocast_disabled
+    prec = {torch.float16: "fp16", torch.bfloat16: "bf16"}.get(_AUTOCAST_DTYPE, "fp32")
+    use_autocast = (_AUTOCAST_DTYPE is not None) and not _autocast_disabled
 
     t0 = time.time()
-    if use_fp16:
+    if use_autocast:
         try:
             result = _run(use_autocast=True)
             if _invalid(result):
-                raise ValueError("fp16 produced invalid audio (NaN/silence)")
-            log(f"Inference voice={voice_id} speed={f5_speed} fp16=on took {time.time()-t0:.1f}s")
+                raise ValueError(f"{prec} produced invalid audio (NaN/silence)")
+            log(f"Inference voice={voice_id} speed={f5_speed} {prec}=on took {time.time()-t0:.1f}s")
         except Exception as fe:
-            log(f"fp16 path failed ({fe}); permanently falling back to fp32")
-            _fp16_disabled = True
+            log(f"{prec} path failed ({fe}); permanently falling back to fp32")
+            _autocast_disabled = True
             t0 = time.time()
             _run(use_autocast=False)
-            log(f"Inference voice={voice_id} speed={f5_speed} fp16=off took {time.time()-t0:.1f}s")
+            log(f"Inference voice={voice_id} speed={f5_speed} {prec}->fp32 took {time.time()-t0:.1f}s")
     else:
         _run(use_autocast=False)
-        log(f"Inference voice={voice_id} speed={f5_speed} fp16=off took {time.time()-t0:.1f}s")
+        log(f"Inference voice={voice_id} speed={f5_speed} fp32 took {time.time()-t0:.1f}s")
 
     apply_post(out_path, pitch_st=pitch_st, volume_pct=volume_pct,
                trim_silence=trim_silence, mastering=mastering)
