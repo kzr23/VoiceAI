@@ -196,25 +196,38 @@ if ($HaveShared) {
     Ok "FFmpeg (shared) already present in backend\bin"
 } else {
     Log "Downloading FFmpeg shared build (~110 MB, includes DLLs for torchcodec)..."
-    try {
-        New-Item -ItemType Directory -Force -Path $FfmpegBin | Out-Null
-        $ffZip = Join-Path $env:TEMP "curzon_ffmpeg.zip"
-        $ffTmp = Join-Path $env:TEMP "curzon_ffmpeg_extract"
-        Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.zip" `
-            -OutFile $ffZip -UseBasicParsing -ErrorAction Stop
-        if (Test-Path $ffTmp) { Remove-Item $ffTmp -Recurse -Force }
-        Expand-Archive -Path $ffZip -DestinationPath $ffTmp -Force
-        # Copy the whole bin\ (ffmpeg.exe, ffprobe.exe AND the shared DLLs).
-        $exe = Get-ChildItem $ffTmp -Recurse -Filter ffmpeg.exe | Select-Object -First 1
-        if ($exe) { Copy-Item (Join-Path $exe.DirectoryName "*") -Destination $FfmpegBin -Force }
-        Remove-Item $ffZip, $ffTmp -Recurse -Force -ErrorAction SilentlyContinue
-        if ((Test-Path $FfmpegExe) -and (Get-ChildItem $FfmpegBin -Filter "avcodec*.dll" -ErrorAction SilentlyContinue)) {
-            Ok "FFmpeg (shared) installed to backend\bin"
-        } else {
-            Warn "FFmpeg extract failed - custom-voice generation may not work (built-in voices are fine)."
+    # gyan.dev ships the full-SHARED build only as .7z (its .zip variants are
+    # essentials-only, no DLLs) - so the old .zip URL 404'd. BtbN's GitHub
+    # release is a real .zip WITH the shared DLLs and is reliable from an
+    # app-spawned process (GitHub asset, same as our Python/Kokoro downloads).
+    $ffUrls = @(
+        "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip",
+        "https://github.com/GyanD/codexffmpeg/releases/latest/download/ffmpeg-release-full-shared.zip"
+    )
+    $ffZip = Join-Path $env:TEMP "curzon_ffmpeg.zip"
+    $ffTmp = Join-Path $env:TEMP "curzon_ffmpeg_extract"
+    New-Item -ItemType Directory -Force -Path $FfmpegBin | Out-Null
+    foreach ($ffUrl in $ffUrls) {
+        try {
+            Invoke-WebRequest -Uri $ffUrl -OutFile $ffZip -UseBasicParsing -ErrorAction Stop
+            if (Test-Path $ffTmp) { Remove-Item $ffTmp -Recurse -Force }
+            Expand-Archive -Path $ffZip -DestinationPath $ffTmp -Force
+            # Copy the whole bin\ (ffmpeg.exe, ffprobe.exe AND the shared DLLs).
+            $exe = Get-ChildItem $ffTmp -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+            if ($exe) { Copy-Item (Join-Path $exe.DirectoryName "*") -Destination $FfmpegBin -Force }
+            Remove-Item $ffZip, $ffTmp -Recurse -Force -ErrorAction SilentlyContinue
+            if ((Test-Path $FfmpegExe) -and (Get-ChildItem $FfmpegBin -Filter "avcodec*.dll" -ErrorAction SilentlyContinue)) {
+                Ok "FFmpeg (shared) installed to backend\bin"
+                break
+            } else {
+                Warn "FFmpeg extract from $ffUrl missing DLLs - trying next source..."
+            }
+        } catch {
+            Warn "FFmpeg download from $ffUrl failed - trying next source: $_"
         }
-    } catch {
-        Warn "FFmpeg download failed - custom-voice generation may not work (built-in voices are fine): $_"
+    }
+    if (-not ((Test-Path $FfmpegExe) -and (Get-ChildItem $FfmpegBin -Filter "avcodec*.dll" -ErrorAction SilentlyContinue))) {
+        Warn "FFmpeg (shared) install failed from all sources - custom-voice generation may not work (built-in voices are fine)."
     }
 }
 
@@ -243,7 +256,9 @@ if ($ResourceDir -and (Test-Path (Join-Path $ResourceDir "backend"))) {
 }
 
 Log "Upgrading pip, setuptools, wheel..."
-& $VenvPip install --quiet --upgrade pip setuptools wheel
+# Must go through `python -m pip`, not pip.exe: on Windows pip can't replace its
+# own running .exe ("To modify pip, please run ... python.exe -m pip ...").
+& $VenvPython -m pip install --quiet --upgrade pip setuptools wheel
 
 # ===============================================================================
 Step "4/8 - Python Packages"
@@ -253,18 +268,24 @@ Log "Installing core audio packages..."
     "numpy>=1.26.0,<2.0" "scipy>=1.11.0" "librosa>=0.10.2" "soundfile>=0.12.1" `
     "pydub>=0.25.1" "noisereduce>=3.0.2" "pedalboard>=0.9.0" `
     "nltk>=3.8.1" "requests>=2.31.0" "tqdm>=4.66.0"
+# A native non-zero exit does NOT throw in PowerShell, so check $LASTEXITCODE.
+# These are load-bearing - abort rather than march on to a false "setup complete".
+if ($LASTEXITCODE) { Err "Core audio packages failed to install (numpy/scipy/librosa/soundfile/...). Setup cannot continue - check your internet connection and re-run." }
 Ok "Core audio packages installed"
 
 Log "Installing ONNX runtime..."
 & $VenvPip install --quiet "onnxruntime>=1.18.0"
+if ($LASTEXITCODE) { Err "ONNX runtime failed to install - built-in voices (Kokoro/Piper) need it. Setup cannot continue." }
 Ok "ONNX runtime installed"
 
 Log "Installing Kokoro TTS..."
 & $VenvPip install --quiet "kokoro-onnx>=0.4.0"
+if ($LASTEXITCODE) { Err "Kokoro TTS failed to install - built-in voices need it. Setup cannot continue." }
 Ok "Kokoro TTS installed"
 
 Log "Installing Piper TTS..."
 & $VenvPip install --quiet "piper-tts>=1.2.0"
+if ($LASTEXITCODE) { Err "Piper TTS failed to install - built-in voices need it. Setup cannot continue." }
 Ok "Piper TTS installed"
 
 # Install GPU (CUDA) PyTorch when an NVIDIA card is present so F5-TTS runs on the
@@ -286,11 +307,13 @@ if ($HasNvidia) {
     Log "NVIDIA GPU detected - installing CUDA PyTorch (~2.5 GB, big speed-up)..."
     & $VenvPip install --quiet torch torchaudio `
         --index-url https://download.pytorch.org/whl/cu121
+    if ($LASTEXITCODE) { Err "PyTorch (CUDA) failed to install - custom-voice (F5) generation needs it. Setup cannot continue." }
     Ok "PyTorch (CUDA) installed"
 } else {
     Log "No NVIDIA GPU - installing CPU PyTorch (~600 MB)..."
     & $VenvPip install --quiet torch torchaudio `
         --index-url https://download.pytorch.org/whl/cpu
+    if ($LASTEXITCODE) { Err "PyTorch (CPU) failed to install - custom-voice (F5) generation needs it. Setup cannot continue." }
     Ok "PyTorch (CPU) installed"
 }
 
@@ -305,6 +328,7 @@ if ($LASTEXITCODE) {
 
 Log "Installing F5-TTS..."
 & $VenvPip install --quiet "f5-tts>=0.3.0" "cached_path"
+if ($LASTEXITCODE) { Err "F5-TTS failed to install - custom-voice cloning needs it. Setup cannot continue." }
 Ok "F5-TTS installed"
 
 
