@@ -200,14 +200,46 @@ jobs:
             echo "ERROR: no *universal.dmg found to publish."; exit 1
           fi
           echo "Publishing $DMG to ${DIST_REPO}@${TAG}"
-
-          # Create the release on the distribution repo if it doesn't exist yet,
-          # then upload (clobber) the DMG so re-runs are idempotent.
-          if ! gh release view "$TAG" --repo "$DIST_REPO" >/dev/null 2>&1; then
-            gh release create "$TAG" \
-              --repo "$DIST_REPO" \
-              --title "Curzon $TAG" \
-              --notes 'Install (macOS): `curl -fsSL https://raw.githubusercontent.com/mhkzr/curzon/main/scripts/install.sh | bash`'
-          fi
+          printf '%s\n' \
+            "## Curzon $TAG" "" \
+            "**macOS** — paste into Terminal:" \
+            '`curl -fsSL https://raw.githubusercontent.com/mhkzr/curzon/main/scripts/install.sh | bash`' "" \
+            "**Windows** — download the \`*_x64-setup.exe\` asset below and run it." \
+            > /tmp/relnotes.md
+          # Create the release if absent (tolerant of the parallel Windows job
+          # creating it first), then upload (clobber) so re-runs are idempotent.
+          gh release create "$TAG" --repo "$DIST_REPO" --title "Curzon $TAG" \
+            --notes-file /tmp/relnotes.md 2>/dev/null || echo "release $TAG already exists on $DIST_REPO"
           gh release upload "$TAG" "$DMG" --repo "$DIST_REPO" --clobber
+          echo "Published to https://github.com/${DIST_REPO}/releases/tag/${TAG}"
+
+      # ── Mirror the Windows installer to the public distribution repo ─────────
+      # Same isolation goal as the macOS step: publish the NSIS .exe to
+      # mhkzr/curzon so Windows users also download from the public repo. The
+      # auto-updater still points at kzr23 — this is download-distribution only.
+      - name: Publish Windows installer to distribution repo (mhkzr/curzon)
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.CURZON_DIST_TOKEN }}
+        run: |
+          set -e
+          DIST_REPO="mhkzr/curzon"
+          TAG="${{ github.ref_name }}"
+          EXE=$(find frontend/src-tauri/target -name "*-setup.exe" | head -1)
+          if [ -z "$EXE" ]; then
+            echo "ERROR: no *-setup.exe found to publish."; exit 1
+          fi
+          echo "Publishing $EXE to ${DIST_REPO}@${TAG}"
+          printf '%s\n' \
+            "## Curzon $TAG" "" \
+            "**macOS** — paste into Terminal:" \
+            '`curl -fsSL https://raw.githubusercontent.com/mhkzr/curzon/main/scripts/install.sh | bash`' "" \
+            "**Windows** — download the \`*_x64-setup.exe\` asset below and run it." \
+            > /tmp/relnotes.md
+          # Create the release if absent (tolerant of the parallel macOS job
+          # creating it first), then upload (clobber) so re-runs are idempotent.
+          gh release create "$TAG" --repo "$DIST_REPO" --title "Curzon $TAG" \
+            --notes-file /tmp/relnotes.md 2>/dev/null || echo "release $TAG already exists on $DIST_REPO"
+          gh release upload "$TAG" "$EXE" --repo "$DIST_REPO" --clobber
           echo "Published to https://github.com/${DIST_REPO}/releases/tag/${TAG}"
