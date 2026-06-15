@@ -123,7 +123,7 @@ jobs:
             - **macOS (recommended — one line, no security warnings):**
               Open **Terminal** and paste:
               ```
-              curl -fsSL https://raw.githubusercontent.com/kzr23/VoiceAI/main/scripts/install.sh | bash
+              curl -fsSL https://raw.githubusercontent.com/mhkzr/curzon/main/scripts/install.sh | bash
               ```
               This downloads and installs Curzon to /Applications and launches it. Because the download
               happens via `curl` (not a browser), macOS does **not** quarantine it — so there is no
@@ -180,3 +180,34 @@ jobs:
 
           echo "Replacing release asset with updated DMG..."
           gh release upload "${{ github.ref_name }}" "$DMG" --clobber
+
+      # ── Mirror the macOS DMG to the public distribution repo ─────────────────
+      # The public one-line installer (scripts/install.sh) lives in mhkzr/curzon
+      # and downloads the DMG from THAT repo's releases — keeping this build/source
+      # repo isolated. Publish the same install-script-injected universal DMG to a
+      # matching tag there, using a PAT with `repo` scope on mhkzr/curzon stored as
+      # the CURZON_DIST_TOKEN secret. macOS-only (the DMG is a mac artifact).
+      - name: Publish macOS DMG to distribution repo (mhkzr/curzon)
+        if: matrix.platform == 'macos-latest'
+        env:
+          GH_TOKEN: ${{ secrets.CURZON_DIST_TOKEN }}
+        run: |
+          set -e
+          DIST_REPO="mhkzr/curzon"
+          TAG="${{ github.ref_name }}"
+          DMG=$(find frontend/src-tauri/target -name "*universal.dmg" | head -1)
+          if [ -z "$DMG" ]; then
+            echo "ERROR: no *universal.dmg found to publish."; exit 1
+          fi
+          echo "Publishing $DMG to ${DIST_REPO}@${TAG}"
+
+          # Create the release on the distribution repo if it doesn't exist yet,
+          # then upload (clobber) the DMG so re-runs are idempotent.
+          if ! gh release view "$TAG" --repo "$DIST_REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --repo "$DIST_REPO" \
+              --title "Curzon $TAG" \
+              --notes 'Install (macOS): `curl -fsSL https://raw.githubusercontent.com/mhkzr/curzon/main/scripts/install.sh | bash`'
+          fi
+          gh release upload "$TAG" "$DMG" --repo "$DIST_REPO" --clobber
+          echo "Published to https://github.com/${DIST_REPO}/releases/tag/${TAG}"

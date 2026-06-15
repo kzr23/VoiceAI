@@ -3,7 +3,7 @@
 #  Curzon VoiceAI — one-line macOS installer
 #
 #  Usage (paste into Terminal):
-#    curl -fsSL https://raw.githubusercontent.com/kzr23/VoiceAI/main/scripts/install.sh | bash
+#    curl -fsSL https://raw.githubusercontent.com/mhkzr/curzon/main/scripts/install.sh | bash
 #
 #  Why this works without any Gatekeeper warning:
 #  macOS only blocks apps that carry the `com.apple.quarantine` flag, which is
@@ -13,7 +13,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-REPO="kzr23/VoiceAI"
+REPO="mhkzr/curzon"
 APP_NAME="Curzon"
 TMP_DMG="$(mktemp -t curzon).dmg"
 MOUNT="/tmp/curzon_install_vol"
