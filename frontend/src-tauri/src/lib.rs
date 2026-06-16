@@ -722,11 +722,32 @@ fn save_f5_voice(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LICENSE VERIFICATION
-// Update GUMROAD_PERMALINK to match your Gumroad product URL
-// e.g. gumroad.com/l/curzon-voiceai → "curzon-voiceai"
+// GUMROAD_PRODUCT_ID is the product's API ID, shown in Gumroad under
+// Product → Content → "Use your product ID to verify licenses through the API".
+// Gumroad recommends verifying by product_id (the legacy product_permalink is
+// deprecated). The value is base64 and contains "==", which url_encode() escapes.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const GUMROAD_PERMALINK: &str = "curzon-voiceai";
+const GUMROAD_PRODUCT_ID: &str = "pADm0dYLIF8qOvoDBx44lQ==";
+
+// Max number of activations per license key (anti-sharing). Each activation
+// (fresh install / new machine — NOT app relaunch, which reads the cached
+// license.json) calls Gumroad with increment_uses_count=true; Gumroad returns
+// the post-increment `uses` count, so we allow while uses <= this cap.
+const MAX_ACTIVATIONS: u32 = 2;
+
+// Percent-encode a value for an application/x-www-form-urlencoded POST body.
+// Keeps RFC 3986 unreserved chars; escapes everything else (e.g. '=' → %3D,
+// '+' → %2B, '/' → %2F) so base64 IDs and any key punctuation survive intact.
+fn url_encode(s: &str) -> String {
+    s.chars().map(|c| {
+        if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '~' {
+            c.to_string()
+        } else {
+            format!("%{:02X}", c as u32)
+        }
+    }).collect()
+}
 
 fn djb2(s: &str) -> String {
     let mut h: u64 = 5381;
@@ -742,11 +763,7 @@ fn license_path() -> std::path::PathBuf {
 }
 
 #[tauri::command]
-#[allow(unreachable_code)]
 fn check_license() -> bool {
-    // ─── TEMP: license gate DISABLED for end-to-end testing ──────────────────
-    // Remove the `return true;` line below to RE-ENABLE before release.
-    return true;
     match fs::read_to_string(license_path()) {
         Ok(s) => s.contains("\"activated\":true"),
         Err(_) => false,
@@ -760,15 +777,11 @@ fn activate_license(key: String) -> Result<(), String> {
         return Err("Please enter your license key.".to_string());
     }
 
-    // URL-encode the key for the POST body
-    let encoded: String = key.chars().map(|c| {
-        if c.is_alphanumeric() || c == '-' { c.to_string() }
-        else { format!("%{:02X}", c as u32) }
-    }).collect();
-
+    // URL-encode both the product ID (base64, contains '==') and the key
+    // for the application/x-www-form-urlencoded POST body.
     let post_data = format!(
-        "product_permalink={}&license_key={}&increment_uses_count=true",
-        GUMROAD_PERMALINK, encoded
+        "product_id={}&license_key={}&increment_uses_count=true",
+        url_encode(GUMROAD_PRODUCT_ID), url_encode(&key)
     );
 
     let curl = if cfg!(target_os = "windows") { "curl.exe" } else { "curl" };
@@ -789,6 +802,24 @@ fn activate_license(key: String) -> Result<(), String> {
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "Invalid license key. Please check and try again.".to_string());
         return Err(msg);
+    }
+
+    // Anti-sharing: Gumroad returns the post-increment activation count in
+    // "uses". Reject once it exceeds the cap so a key can't be used on an
+    // unlimited number of machines. Parse the integer right after "uses":.
+    let uses: u32 = body
+        .split("\"uses\":")
+        .nth(1)
+        .map(|s| s.trim_start())
+        .map(|s| s.chars().take_while(|c| c.is_ascii_digit()).collect::<String>())
+        .and_then(|d| d.parse().ok())
+        .unwrap_or(0);
+    if uses > MAX_ACTIVATIONS {
+        return Err(format!(
+            "This license has reached its activation limit ({} devices). \
+             If you need to move it to another computer, please contact support.",
+            MAX_ACTIVATIONS
+        ));
     }
 
     let path = license_path();

@@ -206,10 +206,14 @@ jobs:
             '`curl -fsSL https://raw.githubusercontent.com/mhkzr/curzon/main/scripts/install.sh | bash`' "" \
             "**Windows** — download the \`*_x64-setup.exe\` asset below and run it." \
             > /tmp/relnotes.md
-          # Create the release if absent (tolerant of the parallel Windows job
-          # creating it first), then upload (clobber) so re-runs are idempotent.
-          gh release create "$TAG" --repo "$DIST_REPO" --title "Curzon $TAG" \
-            --notes-file /tmp/relnotes.md 2>/dev/null || echo "release $TAG already exists on $DIST_REPO"
+          # Create the release if absent. Tolerate the parallel Windows job having
+          # created it first (create fails -> release exists -> the fallback view
+          # succeeds), but do NOT mask real failures like a permission-less token.
+          if ! gh release view "$TAG" --repo "$DIST_REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$DIST_REPO" --title "Curzon $TAG" \
+              --notes-file /tmp/relnotes.md \
+              || gh release view "$TAG" --repo "$DIST_REPO" >/dev/null
+          fi
           gh release upload "$TAG" "$DMG" --repo "$DIST_REPO" --clobber
           echo "Published to https://github.com/${DIST_REPO}/releases/tag/${TAG}"
 
@@ -237,9 +241,13 @@ jobs:
             '`curl -fsSL https://raw.githubusercontent.com/mhkzr/curzon/main/scripts/install.sh | bash`' "" \
             "**Windows** — download the \`*_x64-setup.exe\` asset below and run it." \
             > /tmp/relnotes.md
-          # Create the release if absent (tolerant of the parallel macOS job
-          # creating it first), then upload (clobber) so re-runs are idempotent.
-          gh release create "$TAG" --repo "$DIST_REPO" --title "Curzon $TAG" \
-            --notes-file /tmp/relnotes.md 2>/dev/null || echo "release $TAG already exists on $DIST_REPO"
+          # Create the release if absent. Tolerate the parallel macOS job having
+          # created it first (create fails -> release exists -> the fallback view
+          # succeeds), but do NOT mask real failures like a permission-less token.
+          if ! gh release view "$TAG" --repo "$DIST_REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$DIST_REPO" --title "Curzon $TAG" \
+              --notes-file /tmp/relnotes.md \
+              || gh release view "$TAG" --repo "$DIST_REPO" >/dev/null
+          fi
           gh release upload "$TAG" "$EXE" --repo "$DIST_REPO" --clobber
           echo "Published to https://github.com/${DIST_REPO}/releases/tag/${TAG}"
